@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: luna-live-private
+    runtime: node
+    plan: starter
+    buildCommand: npm ci || npm install; npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_VERSION
+        value: 22
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: APP_PASSWORD
+        sync: false
+      - key: OPENAI_REALTIME_MODEL
+        value: gpt-realtime-2.1-mini
