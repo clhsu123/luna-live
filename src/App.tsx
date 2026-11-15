@@ -626,6 +626,7 @@ export default function App() {
           </div>
 
           <div className="top-right">
+            <a href="/anam">Anam 動態人像 ↗</a>
             <span className={`connection-pill ${status}`}>
               <span className="live-dot" />
               {status === 'connected'

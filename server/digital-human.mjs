@@ -1,3 +1,4 @@
+import { AnamProvider, AnamRelay, anamAvatars } from './anam-provider.mjs';
 import { normalizeHistory, replayEvents } from '../shared/memory.mjs';
 import { AudioBatcher } from './audio-batcher.mjs';
 import { randomUUID } from 'node:crypto';
@@ -10,10 +11,11 @@ const instructions = {
   business: 'This is fictional semiconductor customer roleplay, never actual customer intelligence. Act as the selected Korean customer. Challenge a CPU IP salesperson on RISC-V vs Arm, PPA, licensing fees, maintenance, royalties, integration, evaluation, tape-out, competitors and technical objections. Do not invent Andes specifications. Give actionable feedback on request. English by default; switch language when asked.',
 };
 const roles = ['Startup CTO', 'SoC architect', 'ASIC design manager', 'CPU IP purchasing manager', 'Edge AI accelerator company', 'Touch IC manufacturer', 'Automotive semiconductor customer'];
-export function installDigitalHuman(app, server) {
-  const sandbox = process.env.LIVEAVATAR_SANDBOX !== 'false';
-  const provider = new LiveAvatarProvider({ apiKey: process.env.LIVEAVATAR_API_KEY, avatarId: process.env.LIVEAVATAR_AVATAR_ID, sandbox, allowPaid: process.env.ALLOW_PAID_AVATAR === 'true' });
-  const sessions = new AvatarSessions(provider, { ttlMs: sandbox ? 60_000 : 300_000 });
+export function installDigitalHuman(app, server, { anam = false, providerOverride, aiSocketFactory = (url, options) => new WebSocket(url, options) } = {}) {
+  const prefix = anam ? '/api/anam' : '/api/avatar';
+  const sandbox = !anam && process.env.LIVEAVATAR_SANDBOX !== 'false';
+  const provider = providerOverride || (anam ? new AnamProvider() : new LiveAvatarProvider({ apiKey: process.env.LIVEAVATAR_API_KEY, avatarId: process.env.LIVEAVATAR_AVATAR_ID, sandbox, allowPaid: process.env.ALLOW_PAID_AVATAR === 'true' }));
+  const sessions = new AvatarSessions(provider, { ttlMs: anam ? 180_000 : sandbox ? 60_000 : 300_000 });
   const tickets = new Map(); const bridges = new Map();
   const origin = process.env.APP_ORIGIN || process.env.RENDER_EXTERNAL_URL;
   const json = express.json({ limit: '128kb' });
@@ -29,18 +31,18 @@ export function installDigitalHuman(app, server) {
     next();
   }
   const safeError = (res, error) => res.status(error instanceof ProviderError ? error.status : 502).json({ error: error instanceof ProviderError ? error.code : 'digital_human_unavailable' });
-  app.get('/api/avatar/status', (req, res) => {
+  app.get(`${prefix}/status`, (req, res) => {
     owner(req, res);
-    res.json({ configured: Boolean(origin && process.env.OPENAI_API_KEY && process.env.LIVEAVATAR_API_KEY && (sandbox || process.env.LIVEAVATAR_AVATAR_ID)), sandbox, paidEnabled: process.env.ALLOW_PAID_AVATAR === 'true', gestures: [], roles });
+    res.json({ characters: anam ? Object.keys(anamAvatars()) : [], configured: Boolean(origin && process.env.OPENAI_API_KEY && (anam ? process.env.ANAM_API_KEY && Object.keys(anamAvatars()).length : process.env.LIVEAVATAR_API_KEY && (sandbox || process.env.LIVEAVATAR_AVATAR_ID))), sandbox, paidEnabled: process.env.ALLOW_PAID_AVATAR === 'true', gestures: [], roles });
   });
-  app.post('/api/avatar/sessions', csrf, json, async (req, res) => {
-    const { mode, role, history = [] } = req.body || {};
+  app.post(`${prefix}/sessions`, csrf, json, async (req, res) => {
+    const { mode, role, character, history = [] } = req.body || {};
     if (!Array.isArray(history) || history.length > 100 || history.some(e => !e || !['user', 'assistant'].includes(e.role) || typeof e.text !== 'string' || e.text.length > 4000)) return res.status(400).json({ error: 'invalid_history' });
     if (!Object.hasOwn(instructions, mode) || (role !== undefined && !roles.includes(role))) return res.status(400).json({ error: 'invalid_mode_or_role' });
     if (!process.env.OPENAI_API_KEY) return res.status(503).json({ error: 'openai_not_configured' });
     const user = owner(req, res);
     try {
-      const session = await sessions.create(user);
+      const session = await sessions.create(user, character);
       const ticket = randomUUID();
       const timer = setTimeout(() => { tickets.delete(ticket); void sessions.stop(user, session.id).catch(() => {}); }, 30_000);
       timer.unref();
@@ -48,7 +50,7 @@ export function installDigitalHuman(app, server) {
       res.json({ ...session, ticket, sandbox });
     } catch (error) { safeError(res, error); }
   });
-  app.post('/api/avatar/sessions/:id/stop', csrf, json, async (req, res) => {
+  app.post(`${prefix}/sessions/:id/stop`, csrf, json, async (req, res) => {
     try {
       const user = owner(req, res); sessions.get(user, req.params.id);
       bridges.get(req.params.id)?.();
@@ -58,9 +60,10 @@ export function installDigitalHuman(app, server) {
   const wss = new WebSocketServer({ noServer: true, maxPayload: 128 * 1024 });
   server.on('upgrade', (req, socket, head) => {
     let url; try { url = new URL(req.url, 'http://localhost'); } catch { return socket.destroy(); }
+    if (url.pathname !== `${prefix}/bridge`) return;
     const ticket = tickets.get(url.searchParams.get('ticket'));
     const cookieOwner = /(?:^|;\s*)luna_owner=([a-f0-9-]{36})(?:;|$)/.exec(req.headers.cookie || '')?.[1];
-    if (url.pathname !== '/api/avatar/bridge' || !origin || req.headers.origin !== origin || !ticket || ticket.user !== cookieOwner) return socket.destroy();
+    if (!origin || req.headers.origin !== origin || !ticket || ticket.user !== cookieOwner) return socket.destroy();
     tickets.delete(url.searchParams.get('ticket')); clearTimeout(ticket.timer);
     wss.handleUpgrade(req, socket, head, client => connect(client, ticket));
   });
@@ -75,7 +78,7 @@ export function installDigitalHuman(app, server) {
       ai?.close(); avatar?.close(); client.close(); void sessions.stop(ticket.user, ticket.id).catch(() => {});
     };
     const fail = () => { tell({ type: 'bridge.error', message: '連線中斷或供應商錯誤。請結束後重新連線。' }); cleanup(); };
-    const batch = new AudioBatcher(audio => send(avatar, { type: 'agent.speak', event_id: utterance, audio }), { onError: fail });
+    const batch = anam ? { append: audio => send(avatar, { type: 'agent.speak', event_id: utterance, audio }), clear() {}, flush() {} } : new AudioBatcher(audio => send(avatar, { type: 'agent.speak', event_id: utterance, audio }), { onError: fail });
     const interrupt = () => {
       batch.clear();
       if (active) send(ai, { type: 'response.cancel' });
@@ -97,13 +100,13 @@ export function installDigitalHuman(app, server) {
       } catch { fail(); }
     }, 5_000);
     bridges.set(ticket.id, cleanup);
-    try { avatar = new WebSocket(record.controlUrl); } catch { fail(); return; }
+    try { avatar = anam ? new AnamRelay(tell) : new WebSocket(record.controlUrl); } catch { fail(); return; }
     avatar.on('error', fail); avatar.on('close', cleanup);
     avatar.on('message', raw => {
       try {
         const e = JSON.parse(raw.toString());
         if (e.type === 'session.state_updated' && e.state === 'connected' && !ai) {
-          ai = new WebSocket(`wss://api.openai.com/v1/realtime?model=${encodeURIComponent(process.env.OPENAI_REALTIME_MODEL || 'gpt-realtime')}`, { headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}` } });
+          ai = aiSocketFactory(`wss://api.openai.com/v1/realtime?model=${encodeURIComponent(process.env.OPENAI_REALTIME_MODEL || 'gpt-realtime')}`, { headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}` } });
           ai.on('error', fail); ai.on('close', cleanup);
           ai.on('open', () => send(ai, { type: 'session.update', session: { type: 'realtime', instructions: `${instructions[ticket.mode]} ${ticket.mode === 'business' ? `Customer role: ${ticket.role || roles[0]}.` : ''}`, output_modalities: ['audio'], audio: { input: { format: { type: 'audio/pcm', rate: 24000 }, transcription: { model: 'gpt-4o-mini-transcribe' }, turn_detection: null }, output: { format: { type: 'audio/pcm', rate: 24000 }, voice: 'marin' } } } }));
           ai.on('message', raw => {
@@ -133,6 +136,7 @@ export function installDigitalHuman(app, server) {
         if (e.type === 'error') fail();
       } catch { fail(); }
     });
+    if (anam) avatar.emit('message', JSON.stringify({ type: 'session.state_updated', state: 'connected' }));
     client.on('message', (raw, binary) => {
       try {
         if (!ready) return;

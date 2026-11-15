@@ -23,6 +23,6 @@ export function CharacterPicker({selected, onSelect}: {selected:string; onSelect
     {open && <div className="character-grid">{characters.map(c => <button key={c.id} className={selected === c.id ? 'selected' : ''} aria-pressed={selected === c.id} onClick={() => onSelect(c.id)}>
       <img src={portraitUrl(c.id)} alt={`${c.face} · ${c.name}`} loading="lazy"/><strong>{c.face} · {c.name}</strong><small>{c.detail}</small>
     </button>)}</div>}
-    <p>所有外觀共用同一份 Luna 記憶。換裝不會重開語音連線。</p>
+    <p>所有外觀共用同一份 Luna 記憶。動態人像頁更換角色時，需先結束對話再連線。</p>
   </section>;
 }

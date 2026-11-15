@@ -95,3 +95,21 @@ Both voice interfaces disable automatic turn detection. Connect, press **開始�
 speak with pauses as needed, then press **我說完了** to commit audio and request a
 reply. Starting a new turn interrupts the previous response. Appearance changes do
 not end the turn. Existing provider session duration limits still apply.
+
+
+## Anam 人像串接（/anam）
+
+OpenAI 繼續負責語音、對話及手動發話控制。Anam 僅接收 24 kHz mono PCM16 音訊並回傳同步影音。原 LiveAvatar 頁面 /digital 保留。
+
+在 Render 的既有服務 Environment 新增（不要把 key 放進 GitHub 或前端）：
+
+- `ANAM_API_KEY`：Anam Lab → API Keys。
+- `ANAM_AVATAR_ID`：在 Anam 上傳 Luna 黑白 OL 圖片後取得的 avatar ID；只對應 `luna-office`，不會假裝其他照片已動畫化。
+- `ANAM_AVATAR_MODEL`：選填，預設 `cara-4`，需與帳號內 avatar 相容。
+- `ANAM_AVATAR_MAP`：選填 JSON，如 `{"luna-office":"avatar-id-1","19-evening":"avatar-id-2"}`；有效角色鍵與 public/characters 檔名一致（不含副檔名）。對應優先於 ANAM_AVATAR_ID。
+
+保留原有 `OPENAI_API_KEY`、`OPENAI_REALTIME_MODEL`、`APP_PASSWORD`、`APP_ORIGIN`。儲存後部署，打開 `/anam`。沒有設定角色時會停用開始按鈕。更換動態角色先結束連線；所有角色沿用同瀏覽器共享記憶。
+
+每次 Anam 最多 180 秒，閒置 45 秒自動結束；不自動重連。方案用量以 Anam 帳戶為準，本地限時不等於費用上限。請在 Anam 設定支出上限。Session token 使用 `sessionOptions.dataRetention` 關閉錄影與逐字稿保存，不等同 Enterprise Zero Data Retention。
+
+驗收：先確認真正影片出現，再說一句中文，按「我說完了」，確認嘴型和聲音同步；測試短句、連續兩輪、打斷、文字訊息、切換已設定角色、重連帶入記憶和結束後不再播放。程式測試無法取代具有效 key 與 avatar 的真實 WebRTC 驗收。

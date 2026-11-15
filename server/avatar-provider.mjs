@@ -69,12 +69,12 @@ export class AvatarSessions {
     this.provider = provider; this.ttlMs = ttlMs; this.maxSessions = maxSessions;
     this.sessions = new Map(); this.pending = 0; this.closed = false;
   }
-  async create(owner) {
+  async create(owner, options) {
     if (this.closed) throw new ProviderError('shutting_down', 503);
     if (this.sessions.size + this.pending >= this.maxSessions) throw new ProviderError('session_already_active', 409);
     this.pending++;
     try {
-      const session = await this.provider.create();
+      const session = await this.provider.create(options);
       if (this.closed) { await this.provider.stop(session.id); throw new ProviderError('shutting_down', 503); }
       const record = { ...session, owner, timer: null, stopping: null };
       this.sessions.set(session.id, record);
