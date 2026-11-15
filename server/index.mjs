@@ -2,7 +2,7 @@ import { companionPrompt } from '../shared/companion-prompt.mjs';
 import { createServer } from 'node:http';
 import { installDigitalHuman } from './digital-human.mjs';
 import express from 'express';
-import { createHash, timingSafeEqual } from 'node:crypto';
+import { installAuth } from './auth.mjs';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
@@ -16,37 +16,13 @@ const modes = {
   business: `You are Luna, a realistic Korean semiconductor customer roleplay partner. Roleplay a CTO or sourcing manager of a Korean SoC / ASIC / edge AI company, discussing RISC-V CPU IP, PPA, toolchains, license fees, royalties and integration risks. Ask one challenging question at a time. Give specific sales feedback when asked. Speak English by default; switch to Korean or Traditional Chinese on request.`
 };
 const cache = new Map();
-const loginAttempts = new Map();
 setInterval(() => {
   const cutoff = Date.now() - 60_000;
-  for (const [ip, entry] of loginAttempts) if (entry.time < cutoff) loginAttempts.delete(ip);
   for (const [ip, history] of cache) if (!history.some(t => t > cutoff)) cache.delete(ip);
 }, 60_000).unref();
 app.use((_req,res,next)=>{res.set('Cache-Control','no-store');res.set('X-Content-Type-Options','nosniff');next();});
 app.get('/api/health', (_req,res)=>res.json({ok:true,configured:Boolean(process.env.OPENAI_API_KEY && !process.env.OPENAI_API_KEY.includes('REPLACE_ME'))}));
-// Single-user password gate for initial private deployment. Browser will ask for credentials.
-// For a public product, replace with account authentication, quotas and abuse prevention.
-app.use((req,res,next)=>{
-  const secret=process.env.APP_PASSWORD;
-  if(!secret) return res.status(503).send('APP_PASSWORD is not configured.');
-  const ip = req.socket.remoteAddress || 'unknown';
-  const attempt = loginAttempts.get(ip);
-  if (attempt && Date.now() - attempt.time < 60_000 && attempt.count >= 20) {
-    res.set('Retry-After', '60'); return res.status(429).send('Too many login attempts.');
-  }
-  const auth=req.get('authorization') || '';
-  let user='',password='';
-  if(auth.startsWith('Basic ')) {
-    try { const plain=Buffer.from(auth.slice(6),'base64').toString('utf8'); const idx=plain.indexOf(':'); if(idx>=0){user=plain.slice(0,idx);password=plain.slice(idx+1);} }catch{}
-  }
-  const expected=createHash('sha256').update(secret).digest();
-  const actual=createHash('sha256').update(password).digest();
-  if(user==='luna' && timingSafeEqual(actual,expected)) return next();
-  if (loginAttempts.size >= 10000 && !loginAttempts.has(ip)) return res.status(429).send('Try again later.');
-  loginAttempts.set(ip, { time: Date.now(), count: attempt && Date.now() - attempt.time < 60_000 ? attempt.count + 1 : 1 });
-  res.set('WWW-Authenticate','Basic realm="Luna Live Private"');
-  res.status(401).send('Login required');
-});
+installAuth(app);
 app.post('/api/session', express.text({type:['application/sdp','text/plain'],limit:'64kb'}), async(req,res)=>{
   if (!process.env.OPENAI_API_KEY || process.env.OPENAI_API_KEY.includes('REPLACE_ME')) return res.status(503).send('請先在 .env 設定 OPENAI_API_KEY。');
   const mode = typeof req.query.mode === 'string' && Object.hasOwn(modes,req.query.mode) ? req.query.mode : 'companion';
