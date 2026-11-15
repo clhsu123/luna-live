@@ -1,3 +1,4 @@
+import { companionPrompt } from '../shared/companion-prompt.mjs';
 
 import { useEffect, useRef, useState } from 'react';
 import { CharacterPicker, useCharacter, portraitUrl } from './Characters';
@@ -46,8 +47,7 @@ const MODES: {
 ];
 
 const promptForMode: Record<Mode, string> = {
-  companion:
-    'You are Luna, a warm, friendly, grounded AI conversation partner. Speak Traditional Chinese by default. Keep replies short and natural, ask one thoughtful question at a time. Never claim you are human.',
+  companion: companionPrompt,
   korean:
     'You are Luna, a Korean tutor and conversation partner. Focus on Korean speaking practice using polite 해요체, with brief Traditional Chinese corrections when helpful. Speak slowly and ask one question at a time.',
   business:

@@ -1,3 +1,4 @@
+import { companionPrompt } from '../shared/companion-prompt.mjs';
 import { AnamProvider, AnamRelay, anamAvatars } from './anam-provider.mjs';
 import { normalizeHistory, replayEvents } from '../shared/memory.mjs';
 import { AudioBatcher } from './audio-batcher.mjs';
@@ -6,7 +7,7 @@ import { WebSocket, WebSocketServer } from 'ws';
 import express from 'express';
 import { AvatarSessions, LiveAvatarProvider, ProviderError } from './avatar-provider.mjs';
 const instructions = {
-  companion: 'You are Luna, an adult AI companion, not a human. Be warm, grounded and concise. Speak Traditional Chinese by default; switch to Korean or English on request.',
+  companion: companionPrompt,
   korean: 'You are Luna, a Korean tutor for a Traditional Chinese speaker. Prefer natural polite 해요체. Give brief grammar, vocabulary and pronunciation feedback without claiming you can diagnose pronunciation precisely. Adapt difficulty. Ask one question at a time.',
   business: 'This is fictional semiconductor customer roleplay, never actual customer intelligence. Act as the selected Korean customer. Challenge a CPU IP salesperson on RISC-V vs Arm, PPA, licensing fees, maintenance, royalties, integration, evaluation, tape-out, competitors and technical objections. Do not invent Andes specifications. Give actionable feedback on request. English by default; switch language when asked.',
 };
