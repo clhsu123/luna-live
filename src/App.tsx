@@ -24,7 +24,11 @@ export default function App(){
  const [error,setError]=useState('');const [sidebar,setSidebar]=useState(false);const [showSettings,setShowSettings]=useState(false);const [seconds,setSeconds]=useState(0);
  const peer=useRef<RTCPeerConnection|null>(null);const channel=useRef<RTCDataChannel|null>(null);const localStream=useRef<MediaStream|null>(null);
  const audio=useRef<HTMLAudioElement|null>(null);const bottom=useRef<HTMLDivElement|null>(null);const responseText=useRef('');const activeResponseId=useRef<string|null>(null);const isConnecting=useRef(false);
- useEffect(()=>bottom.current?.scrollIntoView({behavior:'smooth'}),[messages]);
+ useEffect(() => {
+  // An effect must return either a cleanup function or undefined.
+  // Keep the DOM method's return value out of React's effect cleanup path.
+  bottom.current?.scrollIntoView({behavior:'smooth'});
+}, [messages]);
  useEffect(()=>{if(status!=='connected')return;const id=window.setInterval(()=>setSeconds(t=>t+1),1000);return()=>clearInterval(id)},[status]);
  useEffect(()=>()=>{peer.current?.close();localStream.current?.getTracks().forEach(t=>t.stop());audio.current?.pause()},[]);
  const sendEvent=(event:object)=>{if(channel.current?.readyState==='open')channel.current.send(JSON.stringify(event))};
