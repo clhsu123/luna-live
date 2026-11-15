@@ -1,9 +1,12 @@
+import { createServer } from 'node:http';
+import { installDigitalHuman } from './digital-human.mjs';
 import express from 'express';
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 const app = express();
+const server = createServer(app);
 app.disable('x-powered-by');
 const port = Number(process.env.PORT || 8787);
 const modes = {
@@ -12,6 +15,12 @@ const modes = {
   business: `You are Luna, a realistic Korean semiconductor customer roleplay partner. Roleplay a CTO or sourcing manager of a Korean SoC / ASIC / edge AI company, discussing RISC-V CPU IP, PPA, toolchains, license fees, royalties and integration risks. Ask one challenging question at a time. Give specific sales feedback when asked. Speak English by default; switch to Korean or Traditional Chinese on request.`
 };
 const cache = new Map();
+const loginAttempts = new Map();
+setInterval(() => {
+  const cutoff = Date.now() - 60_000;
+  for (const [ip, entry] of loginAttempts) if (entry.time < cutoff) loginAttempts.delete(ip);
+  for (const [ip, history] of cache) if (!history.some(t => t > cutoff)) cache.delete(ip);
+}, 60_000).unref();
 app.use((_req,res,next)=>{res.set('Cache-Control','no-store');res.set('X-Content-Type-Options','nosniff');next();});
 app.get('/api/health', (_req,res)=>res.json({ok:true,configured:Boolean(process.env.OPENAI_API_KEY && !process.env.OPENAI_API_KEY.includes('REPLACE_ME'))}));
 // Single-user password gate for initial private deployment. Browser will ask for credentials.
@@ -19,6 +28,11 @@ app.get('/api/health', (_req,res)=>res.json({ok:true,configured:Boolean(process.
 app.use((req,res,next)=>{
   const secret=process.env.APP_PASSWORD;
   if(!secret) return res.status(503).send('APP_PASSWORD is not configured.');
+  const ip = req.socket.remoteAddress || 'unknown';
+  const attempt = loginAttempts.get(ip);
+  if (attempt && Date.now() - attempt.time < 60_000 && attempt.count >= 20) {
+    res.set('Retry-After', '60'); return res.status(429).send('Too many login attempts.');
+  }
   const auth=req.get('authorization') || '';
   let user='',password='';
   if(auth.startsWith('Basic ')) {
@@ -27,6 +41,8 @@ app.use((req,res,next)=>{
   const expected=createHash('sha256').update(secret).digest();
   const actual=createHash('sha256').update(password).digest();
   if(user==='luna' && timingSafeEqual(actual,expected)) return next();
+  if (loginAttempts.size >= 10000 && !loginAttempts.has(ip)) return res.status(429).send('Try again later.');
+  loginAttempts.set(ip, { time: Date.now(), count: attempt && Date.now() - attempt.time < 60_000 ? attempt.count + 1 : 1 });
   res.set('WWW-Authenticate','Basic realm="Luna Live Private"');
   res.status(401).send('Login required');
 });
@@ -53,12 +69,15 @@ app.post('/api/session', express.text({type:['application/sdp','text/plain'],lim
       method:'POST',headers:{Authorization:`Bearer ${process.env.OPENAI_API_KEY}`,'OpenAI-Safety-Identifier':userHash},body:form,signal:AbortSignal.timeout(25000)
     });
     const body=await upstream.text();
-    res.status(upstream.status).type(upstream.ok?'application/sdp':'text/plain').send(upstream.ok?body:`OpenAI connection failed (${upstream.status}): ${body.slice(0,900)}`);
+    res.status(upstream.status).type(upstream.ok?'application/sdp':'text/plain').send(upstream.ok?body:`OpenAI connection failed (${upstream.status}). Please retry or check the provider configuration.`);
   }catch(err){console.error('Realtime session error',err);res.status(502).send('OpenAI realtime connection temporarily unavailable.');}
 });
+const closeDigitalHuman = installDigitalHuman(app, server);
 // In production deploy the built frontend with this server.
 if(process.env.NODE_ENV==='production'){
   app.use(express.static(resolve('dist')));
   app.get('*', (_req,res)=>res.type('html').send(readFileSync(resolve('dist/index.html'),'utf8')));
 }
-app.listen(port,'0.0.0.0',()=>console.log(`Luna API running at http://127.0.0.1:${port}`));
+server.listen(port,'0.0.0.0',()=>console.log(`Luna API running at http://127.0.0.1:${port}`));
+
+process.on('SIGTERM', () => { void closeDigitalHuman().finally(() => server.close()); setTimeout(() => process.exit(0), 25000).unref(); });

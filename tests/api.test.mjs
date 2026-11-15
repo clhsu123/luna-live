@@ -1,0 +1,24 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { spawn } from 'node:child_process';
+import { once } from 'node:events';
+test('HTTP auth, origin guard, validation, missing provider and legacy routes', async t => {
+  const child = spawn(process.execPath, ['server/index.mjs'], { env: { PATH: process.env.PATH, PORT: '18787', APP_PASSWORD: 'local-test-password', APP_ORIGIN: 'http://localhost:18787', OPENAI_API_KEY: 'test-only-never-sent', NODE_ENV: 'production' }, stdio: ['ignore','pipe','pipe'] });
+  t.after(() => child.kill('SIGTERM'));
+  await Promise.race([once(child.stdout, 'data'), new Promise((_, reject) => setTimeout(() => reject(Error('startup timeout')), 5000).unref())]);
+  const base = 'http://localhost:18787';
+  const auth = { Authorization: 'Basic ' + Buffer.from('luna:local-test-password').toString('base64') };
+  let res = await fetch(base + '/api/health'); assert.equal(res.status, 200);
+  res = await fetch(base + '/api/avatar/status'); assert.equal(res.status, 401);
+  res = await fetch(base + '/api/avatar/status', { headers: auth }); assert.equal(res.status, 200);
+  const config = await res.json(); assert.equal(config.configured, false); assert.equal(config.sandbox, true); assert.equal(config.roles.length, 7);
+  const post = (path, body, origin = base) => fetch(base + path, { method:'POST', headers: { ...auth, 'Content-Type':'application/json', Origin:origin }, body:JSON.stringify(body) });
+  assert.equal((await post('/api/avatar/sessions', { mode:'companion' }, 'https://evil.example')).status, 403);
+  assert.equal((await post('/api/avatar/sessions', { mode:'invalid' })).status, 400);
+  res = await post('/api/avatar/sessions', { mode:'companion' }); assert.equal(res.status, 503); assert.equal((await res.json()).error,'avatar_not_configured');
+  assert.equal((await post('/api/avatar/sessions/not-owned/stop', {})).status, 404);
+  res = await fetch(base + '/api/session', { method:'POST', headers:{ ...auth, 'Content-Type':'application/sdp' }, body:'invalid' }); assert.equal(res.status,400);
+  for (const path of ['/', '/digital', '/pcm-worklet.js']) assert.equal((await fetch(base + path, { headers:auth })).status,200);
+  for (let i=0;i<20;i++) await fetch(base + '/api/avatar/status');
+  assert.equal((await fetch(base + '/api/avatar/status')).status,429);
+});
