@@ -67,7 +67,7 @@ export function installDigitalHuman(app, server) {
   function connect(client, ticket) {
     let record;
     try { record = sessions.get(ticket.user, ticket.id); } catch { client.close(1008); return; }
-    let ai; let avatar; let done = false; let ready = false; let responseId; let itemId; let utterance; let speakingAt; let speechStoppedAt; let generatedMs = 0; let active = false; let listening = false; let lastActivity = Date.now();
+    let ai; let avatar; let done = false; let ready = false; let responseId; let itemId; let utterance; let speakingAt; let speechStoppedAt; let generatedMs = 0; let active = false; let listening = false; let lastActivity = Date.now(); let inputBytes = 0;
     const tell = data => { if (client.readyState === WebSocket.OPEN) client.send(JSON.stringify(data)); };
     const send = (ws, data) => { if (ws?.readyState === WebSocket.OPEN && ws.bufferedAmount < 1_000_000) ws.send(JSON.stringify(data)); else throw Error('transport_backpressure'); };
     const cleanup = () => {
@@ -105,7 +105,7 @@ export function installDigitalHuman(app, server) {
         if (e.type === 'session.state_updated' && e.state === 'connected' && !ai) {
           ai = new WebSocket(`wss://api.openai.com/v1/realtime?model=${encodeURIComponent(process.env.OPENAI_REALTIME_MODEL || 'gpt-realtime')}`, { headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}` } });
           ai.on('error', fail); ai.on('close', cleanup);
-          ai.on('open', () => send(ai, { type: 'session.update', session: { type: 'realtime', instructions: `${instructions[ticket.mode]} ${ticket.mode === 'business' ? `Customer role: ${ticket.role || roles[0]}.` : ''}`, output_modalities: ['audio'], audio: { input: { format: { type: 'audio/pcm', rate: 24000 }, transcription: { model: 'gpt-4o-mini-transcribe' }, turn_detection: { type: 'semantic_vad', eagerness: 'low', interrupt_response: false, create_response: true } }, output: { format: { type: 'audio/pcm', rate: 24000 }, voice: 'marin' } } } }));
+          ai.on('open', () => send(ai, { type: 'session.update', session: { type: 'realtime', instructions: `${instructions[ticket.mode]} ${ticket.mode === 'business' ? `Customer role: ${ticket.role || roles[0]}.` : ''}`, output_modalities: ['audio'], audio: { input: { format: { type: 'audio/pcm', rate: 24000 }, transcription: { model: 'gpt-4o-mini-transcribe' }, turn_detection: null }, output: { format: { type: 'audio/pcm', rate: 24000 }, voice: 'marin' } } } }));
           ai.on('message', raw => {
             try {
               const e = JSON.parse(raw.toString());
@@ -136,9 +136,16 @@ export function installDigitalHuman(app, server) {
     client.on('message', (raw, binary) => {
       try {
         if (!ready) return;
-        if (binary) { if (raw.length > 12000 || raw.length % 2) throw Error(); send(ai, { type: 'input_audio_buffer.append', audio: raw.toString('base64') }); return; }
+        if (binary) { if (!listening) return; inputBytes += raw.length; if (raw.length > 12000 || raw.length % 2) throw Error(); send(ai, { type: 'input_audio_buffer.append', audio: raw.toString('base64') }); return; }
         const e = JSON.parse(raw.toString());
-        if (e.type === 'interrupt') interrupt();
+        if (e.type === 'turn.start') {
+          interrupt(); send(ai, { type: 'input_audio_buffer.clear' }); inputBytes = 0; listening = true; lastActivity = Date.now();
+        } else if (e.type === 'turn.end') {
+          if (!listening) return;
+          listening = false; lastActivity = Date.now(); speechStoppedAt = Date.now();
+          if (inputBytes < 4800) { send(ai, { type: 'input_audio_buffer.clear' }); tell({ type: 'turn.empty' }); return; }
+          send(ai, { type: 'input_audio_buffer.commit' }); send(ai, { type: 'response.create' }); inputBytes = 0;
+        } else if (e.type === 'interrupt') interrupt();
         else if (e.type === 'text' && typeof e.text === 'string' && e.text.trim() && e.text.length <= 4000) {
           lastActivity = Date.now(); interrupt(); send(ai, { type: 'conversation.item.create', item: { type: 'message', role: 'user', content: [{ type: 'input_text', text: e.text }] } }); send(ai, { type: 'response.create' });
         } else throw Error();

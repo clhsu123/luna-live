@@ -88,3 +88,10 @@ Clearing browser data also removes memory. No transcript is written to this publ
 Validation: `npm run build && npm test`. Optional browser checks require Chromium:
 start the built server on port 18788 with `APP_PASSWORD=local-ui-test`, then run
 `node tests/characters-browser.mjs` and `node tests/browser-check.mjs`.
+
+## Manual speech turns
+
+Both voice interfaces disable automatic turn detection. Connect, press **開始說話**,
+speak with pauses as needed, then press **我說完了** to commit audio and request a
+reply. Starting a new turn interrupts the previous response. Appearance changes do
+not end the turn. Existing provider session duration limits still apply.

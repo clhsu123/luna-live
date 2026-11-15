@@ -80,6 +80,9 @@ export default function App() {
 
   const [input, setInput] = useState('');
   const [muted, setMuted] = useState(false);
+  const recording = useRef(false);
+  const recordingAt = useRef(0);
+  const [finishing, setFinishing] = useState(false);
   const [speaking, setSpeaking] = useState(false);
   const [listening, setListening] = useState(false);
   const [error, setError] = useState('');
@@ -136,6 +139,7 @@ export default function App() {
   };
 
   const stop = () => {
+    recording.current = false; setFinishing(false);
     analyserRef.current = null;
 
     void audioContextRef.current?.close();
@@ -310,6 +314,7 @@ export default function App() {
       });
 
       localStream.current = ms;
+      ms.getAudioTracks().forEach(t => { t.enabled = false; });
 
       pc = new RTCPeerConnection();
       peer.current = pc;
@@ -376,6 +381,7 @@ export default function App() {
         for (const event of replayEvents(getMemory())) dc.send(JSON.stringify(event));
         setStatus('connected');
         setSeconds(0);
+        setMuted(false);
 
 
       };
@@ -447,6 +453,7 @@ export default function App() {
   const sendText = () => {
     const text = input.trim();
     if (!text) return;
+    if (recording.current) { setError('請先按「我說完了」送出語音，再傳文字。'); return; }
 
     if (channel.current?.readyState !== 'open') {
       setError(
@@ -481,13 +488,34 @@ export default function App() {
     });
   };
 
+  const toggleTurn = () => {
+    const dc = channel.current;
+    if (!dc || dc.readyState !== 'open' || finishing) return;
+    if (!recording.current) {
+      if (activeResponseId.current) sendEvent({ type: 'response.cancel' });
+      sendEvent({ type: 'output_audio_buffer.clear' });
+      sendEvent({ type: 'input_audio_buffer.clear' });
+      recording.current = true; recordingAt.current = Date.now(); setListening(true); setSpeaking(false); setMuted(false);
+      localStream.current?.getAudioTracks().forEach(t => { t.enabled = true; });
+    } else {
+      if (Date.now() - recordingAt.current < 300) { setError('請說完一句話後，再按「我說完了」。'); return; }
+      setFinishing(true);
+      window.setTimeout(() => {
+        if (channel.current !== dc || !recording.current) return;
+        recording.current = false; setListening(false); setFinishing(false);
+        localStream.current?.getAudioTracks().forEach(t => { t.enabled = false; });
+        sendEvent({ type: 'input_audio_buffer.commit' }); sendEvent({ type: 'response.create' });
+      }, 150);
+    }
+  };
+
   const toggleMute = () => {
     const next = !muted;
 
     localStream.current
       ?.getAudioTracks()
       .forEach(t => {
-        t.enabled = !next;
+        t.enabled = recording.current && !next;
       });
 
     setMuted(next);
@@ -661,7 +689,7 @@ export default function App() {
               </div>
 
               <div className="scene-note">
-                角色肖像 · OpenAI 即時語音 · 此模式不使用 LiveAvatar
+                按「開始說話」收音，按「我說完了」才會回覆
               </div>
             </div>
 
@@ -704,6 +732,7 @@ export default function App() {
               </div>
 
               <div className="control-buttons">
+                {status === 'connected' && <button className="primary-call" disabled={finishing} aria-pressed={listening} onClick={toggleTurn}>{finishing ? '送出中…' : listening ? '我說完了' : '開始說話'}</button>}
                 {status === 'connected' && (
                   <button
                     className={`icon-call ${

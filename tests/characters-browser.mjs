@@ -47,6 +47,13 @@ try {
  await page.getByRole('button',{name:/19 · 墨綠晚裝/}).click();
  assert.equal(await page.evaluate(()=>window.peers),1);
  assert.equal(await page.evaluate(()=>window.sent.filter(e=>e.type==='conversation.item.create').length),1);
+ await page.getByRole('button',{name:'開始說話',exact:true}).click();
+ assert.equal(await page.evaluate(()=>window.sent.filter(e=>e.type==='response.create').length),0);
+ await page.waitForTimeout(500);
+ assert.equal(await page.evaluate(()=>window.sent.filter(e=>e.type==='response.create').length),0);
+ await page.getByRole('button',{name:'我說完了',exact:true}).click();
+ await page.waitForFunction(()=>window.sent.some(e=>e.type==='response.create'));
+ assert.equal(await page.evaluate(()=>window.sent.filter(e=>e.type==='input_audio_buffer.commit').length),1);
  page.on('dialog',d=>d.accept()); await page.getByRole('button',{name:'清除共享記憶',exact:true}).click();
  assert.equal(await page.evaluate(()=>JSON.parse(localStorage.getItem('luna.shared-memory.v1')).length),0);
  await page.reload(); assert.equal(await page.getByText('我喜歡烏龍茶',{exact:true}).count(),0);
