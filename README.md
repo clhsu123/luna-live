@@ -68,3 +68,23 @@ This edition includes `render.yaml` and `npm start` for Render.
 5. Verify `/api/health` shows `configured:true`, grant microphone access and test.
 
 **Caveats:** HTTP Basic auth is adequate only as a private MVP password gate over HTTPS, not a production multiuser identity system. There are no server-side per-account spending limits and no production-grade abuse controls. Configure OpenAI billing limits and Render account protections. This application is still a static portrait, not true lip-synced streaming video.
+
+## Character wardrobe and shared memory
+
+The main `/` voice interface includes four faces and eight approved outfit images in
+`public/characters/`. Select **角色與造型** to switch instantly without reopening an
+OpenAI session. These are static portraits, not registered LiveAvatar video avatars.
+The `/digital` interface offers the same picker and a link back to portrait voice mode;
+its actual provider stream remains explicitly labeled (Wayne in sandbox).
+
+Both interfaces use one browser-local transcript store (`luna.shared-memory.v1`),
+independent of appearance and conversation mode. Up to 100 entries / 60,000 characters
+are retained; each entry is capped at 4,000 characters. On a new connection the newest
+40 entries / 16,000 characters are replayed as user/assistant conversation items, without
+triggering a response. Memory is not synchronized between devices or browser profiles.
+The **清除共享記憶** action ends the current connection and clears the local store.
+Clearing browser data also removes memory. No transcript is written to this public repo.
+
+Validation: `npm run build && npm test`. Optional browser checks require Chromium:
+start the built server on port 18788 with `APP_PASSWORD=local-ui-test`, then run
+`node tests/characters-browser.mjs` and `node tests/browser-check.mjs`.

@@ -1,9 +1,12 @@
 
 import { useEffect, useRef, useState } from 'react';
+import { CharacterPicker, useCharacter, portraitUrl } from './Characters';
+import { useSharedMemory, getMemory, memoryStorageFailed } from './sharedMemory';
+import { replayEvents } from '../shared/memory.mjs';
 import {
   AudioLines, BookOpen, BriefcaseBusiness, Check, CircleHelp,
   Heart, Headphones, Menu, MessageCircle, Mic, MicOff,
-  Phone, PhoneOff, Hand, Send, Settings2, ShieldCheck,
+  Phone, PhoneOff, Send, Settings2, ShieldCheck,
   Sparkles, Volume2, X
 } from 'lucide-react';
 
@@ -68,296 +71,17 @@ const createMessage = (
   time: clock()
 });
 
-/**
- * Lightweight portrait animation.
- * Audio energy drives an approximate mouth opening.
- * This is not phoneme-level lip-sync or 3D animation.
- */
-function AnimatedPortrait({
-  speaking,
-  listening,
-  analyserRef,
-  bowSignal
-}: {
-  speaking: boolean;
-  listening: boolean;
-  analyserRef: React.RefObject<AnalyserNode | null>;
-  bowSignal: number;
-}) {
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const stateRef = useRef({
-    speaking,
-    listening,
-    bowSignal
-  });
-
-  useEffect(() => {
-    stateRef.current = {
-      speaking,
-      listening,
-      bowSignal
-    };
-  }, [speaking, listening, bowSignal]);
-
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    const image = new Image();
-    image.src = '/avatar.png';
-
-    let raf = 0;
-    let running = true;
-    let amplitude = 0;
-    let bowStart = 0;
-    let previousBow = stateRef.current.bowSignal;
-
-    const waveform = new Uint8Array(1024);
-
-    const paint = () => {
-      if (!running) return;
-
-      raf = requestAnimationFrame(paint);
-
-      if (!image.complete || !image.naturalWidth) return;
-
-      const box = canvas.getBoundingClientRect();
-      if (!box.width || !box.height) return;
-
-      const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
-      const w = Math.round(box.width * dpr);
-      const h = Math.round(box.height * dpr);
-
-      if (canvas.width !== w || canvas.height !== h) {
-        canvas.width = w;
-        canvas.height = h;
-      }
-
-      const now = performance.now();
-
-      const {
-        speaking: talking,
-        listening: hearing,
-        bowSignal: bow
-      } = stateRef.current;
-
-      if (bow !== previousBow) {
-        previousBow = bow;
-        bowStart = now;
-      }
-
-      let target = 0;
-      const analyser = analyserRef.current;
-
-      if (analyser) {
-        analyser.getByteTimeDomainData(
-          waveform as Uint8Array<ArrayBuffer>
-        );
-
-        let sum = 0;
-
-        for (let i = 0; i < waveform.length; i++) {
-          const v = (waveform[i] - 128) / 128;
-          sum += v * v;
-        }
-
-        const rms = Math.sqrt(sum / waveform.length);
-
-        target = Math.min(
-          1,
-          Math.max(0, (rms - 0.012) * 9)
-        );
-      } else if (talking) {
-        target = 0.2 + 0.15 * Math.abs(Math.sin(now / 165));
-      }
-
-      amplitude += (target - amplitude) * 0.26;
-
-      const elapsed = now - bowStart;
-
-      const bowPhase =
-        elapsed >= 0 && elapsed < 1250
-          ? Math.sin(Math.PI * elapsed / 1250)
-          : 0;
-
-      const drift = Math.sin(now / 1200) * 0.0025;
-      const breath = 1 + Math.sin(now / 1900) * 0.003;
-
-      const iw = image.naturalWidth;
-      const ih = image.naturalHeight;
-
-      const scale = Math.max(w / iw, h / ih);
-      const drawW = iw * scale;
-      const drawH = ih * scale;
-
-      const ox = (w - drawW) * 0.5;
-      const oy = (h - drawH) * 0.21;
-
-      ctx.clearRect(0, 0, w, h);
-
-      ctx.save();
-
-      ctx.translate(w * 0.5, h * 0.6);
-      ctx.rotate(drift + bowPhase * 0.045);
-
-      ctx.scale(
-        breath,
-        breath * (1 - bowPhase * 0.037)
-      );
-
-      ctx.translate(
-        -w * 0.5,
-        -h * 0.6 + bowPhase * h * 0.065
-      );
-
-      ctx.drawImage(image, ox, oy, drawW, drawH);
-
-      // Mouth opening animation
-      const open = amplitude * 20;
-
-      if (open > 0.7) {
-        const mx = ox + iw * 0.506 * scale;
-        const my = oy + ih * 0.416 * scale;
-        const mw = iw * 0.077 * scale;
-
-        ctx.save();
-
-        ctx.beginPath();
-        ctx.ellipse(
-          mx,
-          my + open * 0.12,
-          mw,
-          Math.max(0.1, open * 0.62),
-          0,
-          0,
-          Math.PI * 2
-        );
-        ctx.clip();
-
-        const g = ctx.createLinearGradient(
-          mx,
-          my - open,
-          mx,
-          my + open
-        );
-
-        g.addColorStop(0, '#4b202b');
-        g.addColorStop(0.5, '#30121c');
-        g.addColorStop(1, '#873e51');
-
-        ctx.fillStyle = g;
-        ctx.fillRect(
-          mx - mw - 2,
-          my - open - 2,
-          mw * 2 + 4,
-          open * 2 + 4
-        );
-
-        ctx.restore();
-
-        ctx.beginPath();
-        ctx.ellipse(
-          mx,
-          my + open * 0.57,
-          mw * 0.91,
-          Math.max(1, open * 0.17),
-          0,
-          0,
-          Math.PI
-        );
-
-        ctx.strokeStyle = 'rgba(177,86,108,.65)';
-        ctx.lineWidth = Math.max(1, 1.6 * scale);
-        ctx.stroke();
-      }
-
-      // Blink animation
-      const blinkCycle = now % 4300;
-
-      const blink =
-        blinkCycle > 4150
-          ? Math.sin(
-              ((blinkCycle - 4150) / 150) * Math.PI
-            )
-          : 0;
-
-      if (blink > 0) {
-        for (const ex of [iw * 0.389, iw * 0.624]) {
-          const cx = ox + ex * scale;
-          const cy = oy + ih * 0.256 * scale;
-
-          ctx.save();
-          ctx.globalAlpha = blink * 0.7;
-          ctx.beginPath();
-
-          ctx.ellipse(
-            cx,
-            cy,
-            iw * 0.052 * scale,
-            ih * 0.003 * scale,
-            0,
-            0,
-            Math.PI * 2
-          );
-
-          ctx.fillStyle = '#3b2831';
-          ctx.fill();
-          ctx.restore();
-        }
-      }
-
-      if (hearing && !talking) {
-        ctx.fillStyle = 'rgba(160,216,255,.045)';
-        ctx.fillRect(0, 0, w, h);
-      }
-
-      ctx.restore();
-    };
-
-    image.onload = () => {
-      if (running) paint();
-    };
-
-    if (image.complete && image.naturalWidth) {
-      paint();
-    }
-
-    return () => {
-      running = false;
-      cancelAnimationFrame(raf);
-      image.onload = null;
-    };
-  }, [analyserRef]);
-
-  return (
-    <canvas
-      className="animated-portrait"
-      ref={canvasRef}
-      role="img"
-      aria-label="Luna 動態女性肖像"
-    />
-  );
-}
-
 export default function App() {
   const [mode, setMode] = useState<Mode>('companion');
   const [status, setStatus] = useState<Status>('idle');
 
-  const [messages, setMessages] = useState<Message[]>([
-    createMessage(
-      'assistant',
-      '你好呀，我是 Luna。想聊聊今天的事，還是一起練習語言？'
-    )
-  ]);
+  const [messages, setMessages] = useSharedMemory();
+  const [character, selectCharacter] = useCharacter();
 
   const [input, setInput] = useState('');
   const [muted, setMuted] = useState(false);
   const [speaking, setSpeaking] = useState(false);
   const [listening, setListening] = useState(false);
-  const [bowSignal, setBowSignal] = useState(0);
   const [error, setError] = useState('');
   const [sidebar, setSidebar] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
@@ -417,6 +141,7 @@ export default function App() {
     void audioContextRef.current?.close();
     audioContextRef.current = null;
 
+    if (channel.current) channel.current.onmessage = null;
     channel.current?.close();
     channel.current = null;
 
@@ -648,17 +373,11 @@ export default function App() {
       dc.onmessage = onEvent;
 
       dc.onopen = () => {
+        for (const event of replayEvents(getMemory())) dc.send(JSON.stringify(event));
         setStatus('connected');
-        setBowSignal(v => v + 1);
         setSeconds(0);
 
-        setMessages(prev => [
-          ...prev,
-          createMessage(
-            'assistant',
-            '語音已連線，現在可以直接對我說話！'
-          )
-        ]);
+
       };
 
       dc.onerror = () => {
@@ -714,17 +433,6 @@ export default function App() {
   const switchMode = (m: Mode) => {
     setMode(m);
     setSidebar(false);
-
-    setMessages([
-      createMessage(
-        'assistant',
-        m === 'companion'
-          ? '你好呀，今天想聊些什麼？'
-          : m === 'korean'
-          ? '안녕하세요! 오늘은 한국어로 어떤 이야기를 나눠 볼까요?'
-          : 'Welcome. I’m your potential SoC customer. Tell me about your CPU IP solution.'
-      )
-    ]);
 
     if (channel.current?.readyState === 'open') {
       sendEvent({
@@ -853,8 +561,7 @@ export default function App() {
         <div className="side-note">
           <MessageCircle size={18} />
           <span>
-            對話記錄僅保存在本次頁面工作階段。
-            重新整理會清除。
+            所有臉模共享記憶，儲存在此瀏覽器。重新整理後仍可接續。
           </span>
         </div>
 
@@ -928,19 +635,14 @@ export default function App() {
               <div className="avatar-glow" />
 
               <div className="portrait-wrap">
-                <AnimatedPortrait
-                  speaking={speaking}
-                  listening={listening}
-                  analyserRef={analyserRef}
-                  bowSignal={bowSignal}
-                />
+                <img className="character-portrait" src={portraitUrl(character.id)} alt={`${character.face} · ${character.name}`} />
               </div>
 
               <div className="scene-vignette" />
 
               <div className="avatar-name">
                 <div className="name-row">
-                  Luna <span className="ai-badge">AI</span>
+                  {character.face} · {character.name} <span className="ai-badge">AI</span>
                 </div>
 
                 <span>
@@ -959,10 +661,15 @@ export default function App() {
               </div>
 
               <div className="scene-note">
-                2D 動態肖像 · 聲量驅動嘴部動畫（非音素同步）
+                角色肖像 · OpenAI 即時語音 · 此模式不使用 LiveAvatar
               </div>
             </div>
 
+            <CharacterPicker selected={character.id} onSelect={selectCharacter}/>
+            <p className="memory-note">共享記憶：{messages.length} 則 · 此瀏覽器最多保留 100 則；重連帶入最近 40 則（最多 16,000 字）。不跨裝置同步。
+              <button onClick={() => { if (window.confirm('清除所有臉模的共享記憶並結束目前對話？')) { stop(); setMessages([]); } }}>清除共享記憶</button>
+              {memoryStorageFailed() && <span role="alert">瀏覽器儲存失敗，目前記憶僅保留到頁面關閉。</span>}
+            </p>
             <div className="call-controls">
               <div className="left-status">
                 <div
@@ -997,18 +704,6 @@ export default function App() {
               </div>
 
               <div className="control-buttons">
-                <button
-                  className="gesture-button"
-                  type="button"
-                  title="讓 Luna 鞠躬致意"
-                  onClick={() =>
-                    setBowSignal(v => v + 1)
-                  }
-                >
-                  <Hand size={17} />
-                  <span>鞠躬</span>
-                </button>
-
                 {status === 'connected' && (
                   <button
                     className={`icon-call ${
@@ -1188,14 +883,13 @@ export default function App() {
             <p>
               目前具備雙向即時語音、可打斷對話、
               對話逐字稿、文字輸入與三種模式。
-              角色具眨眼、微呼吸、鞠躬與
-              依輸出音量驅動的近似嘴部動畫；
+              目前為可切換的靜態角色肖像，搭配即時語音；
               尚未整合真正的音素級嘴型同步或
               3D 肢體動畫。
             </p>
 
             <p>
-              對話內容不會主動存入網站資料庫；
+              對話文字會儲存在此瀏覽器，供所有臉模共用，可隨時清除；連線時會將最近記憶傳給 OpenAI。
               OpenAI API 的資料處理仍依其適用政策。
               此版本僅供測試，仍需完善公開部署的
               帳號、反濫用與費用控制。

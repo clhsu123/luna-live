@@ -1,3 +1,4 @@
+import { normalizeHistory, replayEvents } from '../shared/memory.mjs';
 import { AudioBatcher } from './audio-batcher.mjs';
 import { randomUUID } from 'node:crypto';
 import { WebSocket, WebSocketServer } from 'ws';
@@ -15,7 +16,7 @@ export function installDigitalHuman(app, server) {
   const sessions = new AvatarSessions(provider, { ttlMs: sandbox ? 60_000 : 300_000 });
   const tickets = new Map(); const bridges = new Map();
   const origin = process.env.APP_ORIGIN || process.env.RENDER_EXTERNAL_URL;
-  const json = express.json({ limit: '8kb' });
+  const json = express.json({ limit: '128kb' });
   function owner(req, res) {
     const found = /(?:^|;\s*)luna_owner=([a-f0-9-]{36})(?:;|$)/.exec(req.headers.cookie || '')?.[1];
     if (found) return found;
@@ -33,7 +34,8 @@ export function installDigitalHuman(app, server) {
     res.json({ configured: Boolean(origin && process.env.OPENAI_API_KEY && process.env.LIVEAVATAR_API_KEY && (sandbox || process.env.LIVEAVATAR_AVATAR_ID)), sandbox, paidEnabled: process.env.ALLOW_PAID_AVATAR === 'true', gestures: [], roles });
   });
   app.post('/api/avatar/sessions', csrf, json, async (req, res) => {
-    const { mode, role } = req.body || {};
+    const { mode, role, history = [] } = req.body || {};
+    if (!Array.isArray(history) || history.length > 100 || history.some(e => !e || !['user', 'assistant'].includes(e.role) || typeof e.text !== 'string' || e.text.length > 4000)) return res.status(400).json({ error: 'invalid_history' });
     if (!Object.hasOwn(instructions, mode) || (role !== undefined && !roles.includes(role))) return res.status(400).json({ error: 'invalid_mode_or_role' });
     if (!process.env.OPENAI_API_KEY) return res.status(503).json({ error: 'openai_not_configured' });
     const user = owner(req, res);
@@ -42,7 +44,7 @@ export function installDigitalHuman(app, server) {
       const ticket = randomUUID();
       const timer = setTimeout(() => { tickets.delete(ticket); void sessions.stop(user, session.id).catch(() => {}); }, 30_000);
       timer.unref();
-      tickets.set(ticket, { user, id: session.id, mode, role, timer });
+      tickets.set(ticket, { user, id: session.id, mode, role, timer, history: normalizeHistory(history, 40, 16000) });
       res.json({ ...session, ticket, sandbox });
     } catch (error) { safeError(res, error); }
   });
@@ -107,7 +109,7 @@ export function installDigitalHuman(app, server) {
           ai.on('message', raw => {
             try {
               const e = JSON.parse(raw.toString());
-              if (e.type === 'session.updated' && !ready) { ready = true; clearTimeout(startup); tell({ type: 'bridge.ready' }); }
+              if (e.type === 'session.updated' && !ready) { for (const event of replayEvents(ticket.history)) send(ai, event); ready = true; clearTimeout(startup); tell({ type: 'bridge.ready' }); }
               if (e.type === 'input_audio_buffer.speech_started') { listening = true; lastActivity = Date.now(); interrupt(); }
               if (e.type === 'input_audio_buffer.speech_stopped') { listening = false; speechStoppedAt = Date.now(); lastActivity = Date.now(); }
               if (e.type === 'response.created') { responseId = e.response.id; active = true; generatedMs = 0; itemId = undefined; utterance = undefined; speakingAt = undefined; }
