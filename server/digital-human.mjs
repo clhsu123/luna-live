@@ -1,3 +1,4 @@
+import { AudioBatcher } from './audio-batcher.mjs';
 import { randomUUID } from 'node:crypto';
 import { WebSocket, WebSocketServer } from 'ws';
 import express from 'express';
@@ -64,15 +65,17 @@ export function installDigitalHuman(app, server) {
   function connect(client, ticket) {
     let record;
     try { record = sessions.get(ticket.user, ticket.id); } catch { client.close(1008); return; }
-    let ai; let avatar; let done = false; let ready = false; let responseId; let itemId; let utterance; let speakingAt; let speechStoppedAt; let generatedMs = 0; let active = false;
+    let ai; let avatar; let done = false; let ready = false; let responseId; let itemId; let utterance; let speakingAt; let speechStoppedAt; let generatedMs = 0; let active = false; let listening = false; let lastActivity = Date.now();
     const tell = data => { if (client.readyState === WebSocket.OPEN) client.send(JSON.stringify(data)); };
     const send = (ws, data) => { if (ws?.readyState === WebSocket.OPEN && ws.bufferedAmount < 1_000_000) ws.send(JSON.stringify(data)); else throw Error('transport_backpressure'); };
     const cleanup = () => {
-      if (done) return; done = true; clearInterval(heartbeat); clearTimeout(startup); bridges.delete(ticket.id);
+      if (done) return; done = true; batch.clear(); clearInterval(heartbeat); clearTimeout(startup); bridges.delete(ticket.id);
       ai?.close(); avatar?.close(); client.close(); void sessions.stop(ticket.user, ticket.id).catch(() => {});
     };
     const fail = () => { tell({ type: 'bridge.error', message: '連線中斷或供應商錯誤。請結束後重新連線。' }); cleanup(); };
+    const batch = new AudioBatcher(audio => send(avatar, { type: 'agent.speak', event_id: utterance, audio }), { onError: fail });
     const interrupt = () => {
+      batch.clear();
       if (active) send(ai, { type: 'response.cancel' });
       if (utterance) {
         send(avatar, { type: 'agent.interrupt', event_id: randomUUID() });
@@ -83,7 +86,13 @@ export function installDigitalHuman(app, server) {
     };
     const startup = setTimeout(fail, 25_000);
     const heartbeat = setInterval(() => {
-      try { if (ready) send(avatar, { type: 'session.keep_alive' }); if (!sessions.sessions.has(ticket.id)) cleanup(); } catch { fail(); }
+      try {
+        if (ready && !active && !utterance && !listening && Date.now() - lastActivity >= 45_000) {
+          tell({ type: 'bridge.error', message: '已閒置 45 秒，影像連線已自動結束以節省用量。可以隨時重新開始。' }); cleanup(); return;
+        }
+        if (ready) send(avatar, { type: 'session.keep_alive' });
+        if (!sessions.sessions.has(ticket.id)) cleanup();
+      } catch { fail(); }
     }, 5_000);
     bridges.set(ticket.id, cleanup);
     try { avatar = new WebSocket(record.controlUrl); } catch { fail(); return; }
@@ -99,15 +108,15 @@ export function installDigitalHuman(app, server) {
             try {
               const e = JSON.parse(raw.toString());
               if (e.type === 'session.updated' && !ready) { ready = true; clearTimeout(startup); tell({ type: 'bridge.ready' }); }
-              if (e.type === 'input_audio_buffer.speech_started') interrupt();
-              if (e.type === 'input_audio_buffer.speech_stopped') speechStoppedAt = Date.now();
+              if (e.type === 'input_audio_buffer.speech_started') { listening = true; lastActivity = Date.now(); interrupt(); }
+              if (e.type === 'input_audio_buffer.speech_stopped') { listening = false; speechStoppedAt = Date.now(); lastActivity = Date.now(); }
               if (e.type === 'response.created') { responseId = e.response.id; active = true; generatedMs = 0; itemId = undefined; utterance = undefined; speakingAt = undefined; }
               if (e.type === 'response.output_audio.delta' && e.response_id === responseId) {
                 itemId = e.item_id; utterance ||= randomUUID();
                 generatedMs += Buffer.from(e.delta, 'base64').length / 48;
-                send(avatar, { type: 'agent.speak', event_id: utterance, audio: e.delta });
+                batch.append(e.delta);
               }
-              if (e.type === 'response.output_audio.done' && e.response_id === responseId && utterance) send(avatar, { type: 'agent.speak_end', event_id: utterance });
+              if (e.type === 'response.output_audio.done' && e.response_id === responseId && utterance) { batch.flush(); send(avatar, { type: 'agent.speak_end', event_id: utterance }); }
               if (e.type === 'response.done') { active = false; if (e.response?.status === 'failed') fail(); }
               if (['input_audio_buffer.speech_started', 'input_audio_buffer.speech_stopped', 'conversation.item.input_audio_transcription.completed', 'response.output_audio_transcript.delta', 'response.output_audio_transcript.done', 'response.created'].includes(e.type)) tell(e);
               if (e.type === 'error') fail();
@@ -118,7 +127,7 @@ export function installDigitalHuman(app, server) {
           speakingAt = Date.now(); tell({ type: 'avatar.speaking', value: true, responseLatencyMs: speechStoppedAt ? Date.now() - speechStoppedAt : null });
         }
         if (['agent.speak_ended', 'agent.speak_interrupted'].includes(e.type)) tell({ type: 'avatar.speaking', value: false });
-        if (e.type === 'agent.speak_ended' && e.source_event_id === utterance) { utterance = undefined; speakingAt = undefined; }
+        if (e.type === 'agent.speak_ended' && e.source_event_id === utterance) { utterance = undefined; speakingAt = undefined; lastActivity = Date.now(); }
         if (e.type === 'error') fail();
       } catch { fail(); }
     });
@@ -129,7 +138,7 @@ export function installDigitalHuman(app, server) {
         const e = JSON.parse(raw.toString());
         if (e.type === 'interrupt') interrupt();
         else if (e.type === 'text' && typeof e.text === 'string' && e.text.trim() && e.text.length <= 4000) {
-          interrupt(); send(ai, { type: 'conversation.item.create', item: { type: 'message', role: 'user', content: [{ type: 'input_text', text: e.text }] } }); send(ai, { type: 'response.create' });
+          lastActivity = Date.now(); interrupt(); send(ai, { type: 'conversation.item.create', item: { type: 'message', role: 'user', content: [{ type: 'input_text', text: e.text }] } }); send(ai, { type: 'response.create' });
         } else throw Error();
       } catch { fail(); }
     });

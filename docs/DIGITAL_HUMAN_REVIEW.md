@@ -1,6 +1,12 @@
 # Luna Live: development checkpoint — 2026-11-15
 
-Status: **development implementation; NOT production-ready; NO staging deployment.**
+Status: **development implementation; NOT production-ready.**
+
+Update: GitHub write access is restored. Draft PR https://github.com/clhsu123/luna-live/pull/1 is open. Separate free staging service https://luna-live-digital-staging.onrender.com is deployed, but API keys and APP_PASSWORD still need secure configuration. HTTP health returned 200/configured=false; /digital returned 503 as designed while password is missing. The initial checkpoint below is historical where it says no staging or GitHub access blocked.
+
+OpenAI owns speech recognition, conversation generation, voice and transcripts. LiveAvatar is audio-in/video-out only, with no provider LLM/TTS or OpenAI-key registration at LiveAvatar. Short audio fragments are coalesced with at most 120ms batching delay. The video session closes after approximately 45–50 seconds of silence with no response generation/playback; a five-second heartbeat checks idleness. Session count stays at one, sandbox defaults on and paid avatar calls default off. These changes reduce control frames and idle session duration; avatar billing is based on stream duration, not merely HTTP request count.
+
+Additional validation: three audio batch tests cover PCM order, interruption discard and asynchronous send failure. Total local automated tests: 12 passed. Real provider audiovisual testing remains pending.
 
 ## Verified production baseline
 
