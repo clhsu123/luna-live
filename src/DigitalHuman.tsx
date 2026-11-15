@@ -29,7 +29,8 @@ export default function DigitalHuman({ anam = false }: { anam?: boolean }) {
   const audioElements = useRef<HTMLMediaElement[]>([]); const muteRef = useRef(false);
   const recording = useRef(false); const recordedAt = useRef(0);
   const [recordingNow, setRecordingNow] = useState(false); const [finishing, setFinishing] = useState(false);
-  const end = useRef<HTMLDivElement>(null);
+  const messages = useRef<HTMLDivElement>(null);
+  const followMessages = useRef(true);
   async function request<T>(path: string, body?: object): Promise<T> {
     const res = await fetch(path, body ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal: AbortSignal.timeout(30000) } : {});
     const value = await res.json(); if (!res.ok) throw Error(value.error || `Request failed: ${res.status}`); return value;
@@ -54,7 +55,10 @@ export default function DigitalHuman({ anam = false }: { anam?: boolean }) {
     window.addEventListener('pagehide', unload);
     return () => { window.removeEventListener('pagehide', unload); void stop(); };
   }, []);
-  useEffect(() => { end.current?.scrollIntoView({ behavior: 'smooth' }); }, [entries]);
+  useEffect(() => {
+    const panel = messages.current;
+    if (panel && followMessages.current) panel.scrollTop = panel.scrollHeight;
+  }, [entries]);
   async function start() {
     if (busy.current) return; busy.current = true;
     const attempt = ++generation.current;
@@ -160,14 +164,14 @@ export default function DigitalHuman({ anam = false }: { anam?: boolean }) {
       <button onClick={async () => { if (window.confirm('清除所有臉模的共享記憶並結束目前對話？')) { await stop(); setEntries([]); } }}>清除共享記憶</button>
       {memoryStorageFailed() && <span role="alert">瀏覽器儲存失敗，目前記憶僅保留到頁面關閉。</span>}</p></div>
     <main className="dh-layout"><section className="dh-stage" aria-label="數位人影片">
-      <video id="luna-avatar-video" ref={video} autoPlay playsInline muted={!anam} onPlaying={() => setVideoReady(true)} />
-      {!videoReady && <div className="dh-placeholder"><span className="dh-orb">L</span><h1>讓對話，面對面。</h1><p>{active ? '正在建立即時影像連線…' : '開始後顯示供應商的即時影片串流'}</p></div>}
+      <div className="dh-video-frame"><video id="luna-avatar-video" ref={video} autoPlay playsInline muted={!anam} onPlaying={() => setVideoReady(true)} />
+      {!videoReady && <div className="dh-placeholder"><span className="dh-orb">L</span><h1>讓對話，面對面。</h1><p>{active ? '正在建立即時影像連線…' : '開始後顯示供應商的即時影片串流'}</p></div>}</div>
       <div className="dh-status" role="status"><i className={active ? 'on' : ''}/>{status === 'connected' ? speaking ? anam ? 'Luna 語音回覆中' : 'Luna 正在說話' : recordingNow ? '收音中 · 說完請按按鈕' : '已連線 · 請按開始說話' : status === 'connecting' ? '連線中' : status === 'reconnecting' ? '重新連線中' : '尚未連線'}</div>
       <div className="dh-caption">{anam ? 'ANAM · 每次最多 3 分鐘 · OpenAI 語音' : config?.sandbox ? 'SANDBOX · Wayne 測試角色 · 約 60 秒' : 'LUNA · AI 數位人'}{latency !== undefined && <small>伺服器語音結束 → avatar 開口事件：{latency} ms（非端到端量測）</small>}</div>
     </section><aside className="dh-panel">
       <div className="dh-panel-head"><p className="dh-eyebrow">YOUR CONVERSATION</p><h2>今天，想聊什麼？</h2><label>對話模式<select value={mode} disabled={active} onChange={e => setMode(e.target.value as Mode)}>{Object.entries(modes).map(([key, title]) => <option key={key} value={key}>{title}</option>)}</select></label>
       {mode === 'business' && <label>模擬客戶角色<select value={role} disabled={active} onChange={e => setRole(e.target.value)}>{config?.roles.map(r => <option key={r}>{r}</option>)}</select><small>虛構演練，不代表真實客戶情報。</small></label>}
-      </div><div className="dh-messages" aria-live="polite">{entries.length === 0 && <p className="dh-empty">支援繁體中文、한국어、English。<br/>與角色語音介面共享記憶，保存在此瀏覽器。</p>}{subtitles && entries.map(e => <article key={e.id} className={e.role}><b>{e.role === 'user' ? '你' : 'Luna'}</b><p>{e.text}</p></article>)}<div ref={end}/></div>
+      </div><div className="dh-messages" ref={messages} onScroll={e => { const el = e.currentTarget; followMessages.current = el.scrollHeight - el.clientHeight - el.scrollTop < 80; }} aria-live="polite">{entries.length === 0 && <p className="dh-empty">支援繁體中文、한국어、English。<br/>與角色語音介面共享記憶，保存在此瀏覽器。</p>}{subtitles && entries.map(e => <article key={e.id} className={e.role}><b>{e.role === 'user' ? '你' : 'Luna'}</b><p>{e.text}</p></article>)}</div>
       <form onSubmit={e => { e.preventDefault(); text(); }}><input aria-label="文字訊息" maxLength={4000} value={input} onChange={e => setInput(e.target.value)} placeholder="也可以打字…" disabled={status !== 'connected'}/><button disabled={status !== 'connected' || !input.trim()}>傳送</button></form>
     </aside></main>
     <p className="dh-footnote">按「開始說話」收音，中途可停頓；按「我說完了」才會回答。</p>

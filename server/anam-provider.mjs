@@ -19,7 +19,7 @@ export class AnamProvider {
     try {
       response = await this.fetch('https://api.anam.ai/v1/auth/session-token', {
         method: 'POST', headers: { Authorization: `Bearer ${this.env.ANAM_API_KEY}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ personaConfig: { name: 'Luna', avatarId, avatarModel: this.env.ANAM_AVATAR_MODEL || 'cara-4', enableAudioPassthrough: true, maxSessionLengthSeconds: 180 }, sessionOptions: { dataRetention: { recording: false, transcripts: false } } }),
+        body: JSON.stringify({ personaConfig: { name: 'Luna', avatarId, avatarModel: this.env.ANAM_AVATAR_MODEL || 'cara-4', enableAudioPassthrough: true, maxSessionLengthSeconds: 180 }, sessionOptions: { videoWidth: 768, videoHeight: 1152, dataRetention: { recording: false, transcripts: false } } }),
         signal: AbortSignal.timeout(20000),
       });
     } catch { throw new ProviderError('anam_unavailable'); }

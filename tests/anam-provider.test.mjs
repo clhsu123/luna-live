@@ -16,6 +16,8 @@ test('Anam token uses external audio, scoped credentials, explicit retention and
     assert.equal(body.personaConfig.avatarId,'custom-face');
     assert.equal(body.personaConfig.enableAudioPassthrough,true);
     assert.equal(body.personaConfig.maxSessionLengthSeconds,180);
+    assert.equal(body.sessionOptions.videoWidth,768);
+    assert.equal(body.sessionOptions.videoHeight,1152);
     assert.deepEqual(body.sessionOptions.dataRetention,{recording:false,transcripts:false});
     return {ok:true,json:async()=>({sessionToken:'scoped-token'})};
   }});
