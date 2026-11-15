@@ -74,3 +74,24 @@ test('shutdown racing allocation stops newly allocated session', async () => {
   const pending = registry.create('owner'); await registry.close();
   complete({ id: 'id', client: {} }); await rejects(pending, 'shutting_down'); assert.equal(stopped, 1);
 });
+
+for (const code of [100, 1000]) {
+  test(`accepts success envelope ${code} across token, start and stop`, async () => {
+    const calls = [];
+    const provider = new LiveAvatarProvider({ apiKey: 'test', fetchImpl: async url => {
+      calls.push(url.split('/').pop());
+      const data = url.endsWith('/token') ? { session_id: 'session-1', session_token: 'private' } : url.endsWith('/start') ? session : null;
+      return { ok: true, json: async () => ({ code, data }) };
+    } });
+    const created = await provider.create();
+    assert.equal(created.id, 'session-1');
+    await provider.stop(created.id);
+    assert.deepEqual(calls, ['token', 'start', 'stop']);
+  });
+}
+test('unknown, missing, string or null success envelopes remain rejected', async () => {
+  for (const envelope of [{code: 401}, {code: '1000'}, {}, null]) {
+    const provider = new LiveAvatarProvider({ apiKey: 'test', fetchImpl: async () => ({ok: true, json: async () => envelope}) });
+    await rejects(provider.request('token', {}), 'avatar_invalid_response');
+  }
+});

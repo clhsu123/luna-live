@@ -22,7 +22,8 @@ export class LiveAvatarProvider {
     if (!response.ok) throw new ProviderError(response.status === 429 ? 'avatar_quota_or_rate_limit' : 'avatar_request_failed', response.status === 429 ? 429 : 502);
     let result;
     try { result = await response.json(); } catch { throw new ProviderError('avatar_invalid_response'); }
-    if (result.code !== 100) throw new ProviderError('avatar_invalid_response');
+    // Official SDK uses 1000; API reference examples also use 100.
+    if (!result || ![100, 1000].includes(result.code)) throw new ProviderError('avatar_invalid_response');
     return result.data;
   }
   async create() {
