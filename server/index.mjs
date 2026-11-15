@@ -61,7 +61,7 @@ app.post('/api/session', express.text({type:['application/sdp','text/plain'],lim
     type:'realtime', model:process.env.OPENAI_REALTIME_MODEL || 'gpt-realtime-2.1-mini',
     instructions:modes[mode],
     output_modalities:['audio'],
-    audio:{input:{transcription:{model:'gpt-4o-mini-transcribe'},turn_detection:{type:'server_vad'}},output:{voice:'marin'}}
+    audio:{input:{transcription:{model:'gpt-4o-mini-transcribe'},turn_detection:{type:'semantic_vad',eagerness:'low',create_response:true,interrupt_response:true}},output:{voice:'marin'}}
   }));
   const userHash=createHash('sha256').update(ip).digest('hex');
   try {

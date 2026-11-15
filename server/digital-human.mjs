@@ -105,7 +105,7 @@ export function installDigitalHuman(app, server) {
         if (e.type === 'session.state_updated' && e.state === 'connected' && !ai) {
           ai = new WebSocket(`wss://api.openai.com/v1/realtime?model=${encodeURIComponent(process.env.OPENAI_REALTIME_MODEL || 'gpt-realtime')}`, { headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}` } });
           ai.on('error', fail); ai.on('close', cleanup);
-          ai.on('open', () => send(ai, { type: 'session.update', session: { type: 'realtime', instructions: `${instructions[ticket.mode]} ${ticket.mode === 'business' ? `Customer role: ${ticket.role || roles[0]}.` : ''}`, output_modalities: ['audio'], audio: { input: { format: { type: 'audio/pcm', rate: 24000 }, transcription: { model: 'gpt-4o-mini-transcribe' }, turn_detection: { type: 'server_vad', interrupt_response: false, create_response: true } }, output: { format: { type: 'audio/pcm', rate: 24000 }, voice: 'marin' } } } }));
+          ai.on('open', () => send(ai, { type: 'session.update', session: { type: 'realtime', instructions: `${instructions[ticket.mode]} ${ticket.mode === 'business' ? `Customer role: ${ticket.role || roles[0]}.` : ''}`, output_modalities: ['audio'], audio: { input: { format: { type: 'audio/pcm', rate: 24000 }, transcription: { model: 'gpt-4o-mini-transcribe' }, turn_detection: { type: 'semantic_vad', eagerness: 'low', interrupt_response: false, create_response: true } }, output: { format: { type: 'audio/pcm', rate: 24000 }, voice: 'marin' } } } }));
           ai.on('message', raw => {
             try {
               const e = JSON.parse(raw.toString());
