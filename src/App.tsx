@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { AudioLines, BookOpen, BriefcaseBusiness, Check, CircleHelp, Heart, Headphones, Menu, MessageCircle, Mic, MicOff, Phone, PhoneOff, Send, Settings2, ShieldCheck, Sparkles, Volume2, X } from 'lucide-react';
+import { AudioLines, BookOpen, BriefcaseBusiness, Check, CircleHelp, Heart, Headphones, Menu, MessageCircle, Mic, MicOff, Phone, PhoneOff, Hand, Send, Settings2, ShieldCheck, Sparkles, Volume2, X } from 'lucide-react';
 
 type Mode='companion'|'korean'|'business';
 type Message={id:string;role:'assistant'|'user';text:string;time:string};
@@ -17,11 +17,109 @@ const promptForMode:Record<Mode,string>={
 const clock=()=>new Date().toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit',hour12:false});
 const createMessage=(role:Message['role'],text:string):Message=>({id:crypto.randomUUID(),role,text,time:clock()});
 
+
+/** Lightweight portrait animation. Audio energy drives a modest, approximate mouth opening.
+ * The source is a single 2D portrait; this is not phoneme-level lip-sync or 3D animation. */
+function AnimatedPortrait({ speaking, listening, analyserRef, bowSignal }: {
+ speaking: boolean; listening: boolean;
+ analyserRef: React.RefObject<AnalyserNode | null>; bowSignal: number;
+}) {
+ const canvasRef=useRef<HTMLCanvasElement|null>(null);
+ const stateRef=useRef({speaking,listening,bowSignal});
+ useEffect(()=>{stateRef.current={speaking,listening,bowSignal}},[speaking,listening,bowSignal]);
+ useEffect(()=>{
+  const canvas=canvasRef.current;
+  if(!canvas)return;
+  const ctx=canvas.getContext('2d');
+  if(!ctx)return;
+  const image=new Image();image.src='/avatar.png';
+  let raf=0;let running=true;let frame=0;let amplitude=0;let bowStart=0;
+  let previousBow=stateRef.current.bowSignal;
+  const waveform=new Uint8Array(1024);
+  const paint=()=>{
+   if(!running)return;
+   raf=requestAnimationFrame(paint);
+   if(!image.complete || !image.naturalWidth)return;
+   const box=canvas.getBoundingClientRect();
+   if(!box.width || !box.height)return;
+   const dpr=Math.min(window.devicePixelRatio||1,1.5);
+   const w=Math.round(box.width*dpr),h=Math.round(box.height*dpr);
+   if(canvas.width!==w||canvas.height!==h){canvas.width=w;canvas.height=h;}
+   const now=performance.now();const {speaking:talking,listening:hearing,bowSignal:bow}=stateRef.current;
+   if(bow!==previousBow){previousBow=bow;bowStart=now;}
+   let target=0;
+   {
+    const analyser=analyserRef.current;
+    if(analyser){
+     analyser.getByteTimeDomainData(waveform as Uint8Array<ArrayBuffer>);
+     let sum=0;
+     for(let i=0;i<waveform.length;i++){const v=(waveform[i]-128)/128;sum+=v*v;}
+     const rms=Math.sqrt(sum/waveform.length);
+     target=Math.min(1,Math.max(0,(rms-.012)*9));
+    }else if(talking){target=.2+.15*Math.abs(Math.sin(now/165));}
+   }
+   amplitude+=(target-amplitude)*.26;
+   const elapsed=now-bowStart;
+   const bowPhase=elapsed>=0&&elapsed<1250?Math.sin(Math.PI*elapsed/1250):0;
+   const drift=Math.sin(now/1200)*.0025;
+   const breath=1+Math.sin(now/1900)*.003;
+   // Object-fit: cover, with object-position 50% 21%, matching the original image.
+   const iw=image.naturalWidth,ih=image.naturalHeight;
+   const scale=Math.max(w/iw,h/ih);
+   const drawW=iw*scale,drawH=ih*scale;
+   const ox=(w-drawW)*.5,oy=(h-drawH)*.21;
+   const facialX=iw*.51;
+   const facialY=ih*.42;
+   const px=ox+facialX*scale,py=oy+facialY*scale;
+   ctx.clearRect(0,0,w,h);
+   ctx.save();
+   ctx.translate(w*.5,h*.6);
+   ctx.rotate(drift+bowPhase*.045);
+   ctx.scale(breath,breath*(1-bowPhase*.037));
+   ctx.translate(-w*.5,-h*.6+bowPhase*h*.065);
+   ctx.drawImage(image,ox,oy,drawW,drawH);
+   // Mouth cavity follows output loudness; conservative extent maintains the portrait.
+   const open=amplitude*20;
+   if(open>.7){
+    const mx=ox+iw*.506*scale,my=oy+ih*.416*scale;
+    const mw=iw*.077*scale;
+    ctx.save();
+    ctx.beginPath();ctx.ellipse(mx,my+open*.12,mw,Math.max(.1,open*.62),0,0,Math.PI*2);ctx.clip();
+    const g=ctx.createLinearGradient(mx,my-open,mx,my+open);
+    g.addColorStop(0,'#4b202b');g.addColorStop(.5,'#30121c');g.addColorStop(1,'#873e51');
+    ctx.fillStyle=g;ctx.fillRect(mx-mw-2,my-open-2,mw*2+4,open*2+4);
+    ctx.restore();
+    // Lower-lip glint and soft edges reduce the cutout look.
+    ctx.beginPath();ctx.ellipse(mx,my+open*.57,mw*.91,Math.max(1,open*.17),0,0,Math.PI);
+    ctx.strokeStyle='rgba(177,86,108,.65)';ctx.lineWidth=Math.max(1,1.6*scale);ctx.stroke();
+   }
+   // Subtle blinks about every four seconds; expressive motion, not anatomical tracking.
+   const blinkCycle=now%4300;const blink=blinkCycle>4150?Math.sin((blinkCycle-4150)/150*Math.PI):0;
+   if(blink>0){
+    for(const ex of [iw*.389,iw*.624]){
+     const cx=ox+ex*scale,cy=oy+ih*.256*scale;
+     ctx.save();ctx.globalAlpha=blink*.7;
+     ctx.beginPath();ctx.ellipse(cx,cy,iw*.052*scale,ih*.003*scale,0,0,Math.PI*2);
+     ctx.fillStyle='#3b2831';ctx.fill();ctx.restore();
+    }
+   }
+   if(hearing && !talking){ // Very subtle attentive head movement.
+    ctx.fillStyle='rgba(160,216,255,.045)';ctx.fillRect(0,0,w,h);
+   }
+   ctx.restore();frame++;
+  };
+  image.onload=()=>{if(running)paint()};
+  if(image.complete && image.naturalWidth)paint();
+  return()=>{running=false;cancelAnimationFrame(raf);image.onload=null;};
+ },[analyserRef]);
+ return <canvas className="animated-portrait" ref={canvasRef} role="img" aria-label="Luna 擬真人女性肖像，具聲量驅動的嘴部動畫與鞠躬動作"/>;
+}
+
 export default function App(){
  const [mode,setMode]=useState<Mode>('companion');const [status,setStatus]=useState<Status>('idle');
  const [messages,setMessages]=useState<Message[]>([createMessage('assistant','你好呀，我是 Luna。想聊聊今天的事，還是一起練習語言？')]);
  const [input,setInput]=useState('');const [muted,setMuted]=useState(false);const [speaking,setSpeaking]=useState(false);const [listening,setListening]=useState(false);
- const [error,setError]=useState('');const [sidebar,setSidebar]=useState(false);const [showSettings,setShowSettings]=useState(false);const [seconds,setSeconds]=useState(0);
+ const [bowSignal,setBowSignal]=useState(0);const analyserRef=useRef<AnalyserNode|null>(null);const audioContextRef=useRef<AudioContext|null>(null);const [error,setError]=useState('');const [sidebar,setSidebar]=useState(false);const [showSettings,setShowSettings]=useState(false);const [seconds,setSeconds]=useState(0);
  const peer=useRef<RTCPeerConnection|null>(null);const channel=useRef<RTCDataChannel|null>(null);const localStream=useRef<MediaStream|null>(null);
  const audio=useRef<HTMLAudioElement|null>(null);const bottom=useRef<HTMLDivElement|null>(null);const responseText=useRef('');const activeResponseId=useRef<string|null>(null);const isConnecting=useRef(false);
  useEffect(() => {
@@ -30,9 +128,9 @@ export default function App(){
   bottom.current?.scrollIntoView({behavior:'smooth'});
 }, [messages]);
  useEffect(()=>{if(status!=='connected')return;const id=window.setInterval(()=>setSeconds(t=>t+1),1000);return()=>clearInterval(id)},[status]);
- useEffect(()=>()=>{peer.current?.close();localStream.current?.getTracks().forEach(t=>t.stop());audio.current?.pause()},[]);
+ useEffect(()=>()=>{peer.current?.close();localStream.current?.getTracks().forEach(t=>t.stop());audio.current?.pause();void audioContextRef.current?.close()},[]);
  const sendEvent=(event:object)=>{if(channel.current?.readyState==='open')channel.current.send(JSON.stringify(event))};
- const stop=()=>{channel.current?.close();channel.current=null;peer.current?.close();peer.current=null;localStream.current?.getTracks().forEach(t=>t.stop());localStream.current=null;if(audio.current){audio.current.pause();audio.current.srcObject=null;}setSpeaking(false);setListening(false);setStatus('idle');setSeconds(0);isConnecting.current=false};
+ const stop=()=>{analyserRef.current=null;void audioContextRef.current?.close();audioContextRef.current=null;channel.current?.close();channel.current=null;peer.current?.close();peer.current=null;localStream.current?.getTracks().forEach(t=>t.stop());localStream.current=null;if(audio.current){audio.current.pause();audio.current.srcObject=null;}setSpeaking(false);setListening(false);setStatus('idle');setSeconds(0);isConnecting.current=false};
  const onEvent=(event:MessageEvent)=>{
   let d:any;try{d=JSON.parse(event.data)}catch{return}
   switch(d.type){
@@ -65,10 +163,13 @@ export default function App(){
    localStream.current=ms;pc=new RTCPeerConnection();peer.current=pc;
    pc.onconnectionstatechange=()=>{if(pc?.connectionState==='failed'||pc?.connectionState==='disconnected'){setError('語音連線中斷，請重新連線。');stop();}};
    if(!audio.current)audio.current=new Audio();audio.current.autoplay=true;
-   pc.ontrack=e=>{if(audio.current){audio.current.srcObject=e.streams[0];audio.current.play().catch(()=>setError('請點擊頁面以啟用音訊播放。'))}};
+   pc.ontrack=e=>{if(audio.current){audio.current.srcObject=e.streams[0];audio.current.play().catch(()=>setError('請點擊頁面以啟用音訊播放。'))}
+    try{const ac=new AudioContext();audioContextRef.current=ac;const src=ac.createMediaStreamSource(e.streams[0]);const analyser=ac.createAnalyser();analyser.fftSize=2048;analyser.smoothingTimeConstant=.72;src.connect(analyser);analyserRef.current=analyser;void ac.resume();}
+    catch(err){console.warn('Audio visualizer unavailable',err);}
+   };
    ms.getAudioTracks().forEach(t=>pc!.addTrack(t,ms!));
    const dc=pc.createDataChannel('oai-events');channel.current=dc;dc.onmessage=onEvent;
-   dc.onopen=()=>{setStatus('connected');setSeconds(0);setMessages(prev=>[...prev,createMessage('assistant','語音已連線，現在可以直接對我說話！')])};
+   dc.onopen=()=>{setStatus('connected');setBowSignal(v=>v+1);setSeconds(0);setMessages(prev=>[...prev,createMessage('assistant','語音已連線，現在可以直接對我說話！')])};
    dc.onerror=()=>setError('資料通道發生問題。');
    const offer=await pc.createOffer();await pc.setLocalDescription(offer);
    const r=await fetch(`/api/session?mode=${mode}`,{method:'POST',headers:{'Content-Type':'application/sdp'},body:offer.sdp||''});
@@ -99,14 +200,14 @@ export default function App(){
     <header className="topbar"><button className="menu-button" onClick={()=>setSidebar(true)}><Menu size={22}/></button><div className="crumb">Your space <span>/</span> <strong>{activeMode.title}</strong></div><div className="top-right"><span className={`connection-pill ${status}`}><span className="live-dot"/>{status==='connected'?'已連線':status==='connecting'?'連線中':'尚未連線'}</span><span className="user-circle">YOU</span></div></header>
     <div className="workspace">
       <section className="center-stage"><div className="stage-header"><div><div className="eyebrow"><span className="tiny-star">✦</span> YOUR AI CONVERSATION PARTNER</div><h1>和 Luna，自然地聊聊天。</h1><p>讓每一次對話，都更接近真實的交流。</p></div><div className="mode-chip"><span>{activeMode.emoji}</span>{activeMode.title}</div></div>
-       <div className="avatar-scene"><div className="avatar-glow"/><div className={`portrait-wrap ${speaking?'talking':''} ${listening?'listening':''}`}><img src="/avatar.png" alt="Luna 的 AI 虛擬人物肖像"/></div><div className="scene-vignette"/><div className="avatar-name"><div className="name-row">Luna <span className="ai-badge">AI</span></div><span>{speaking?'正在回覆你...':listening?'正在聽你說話':status==='connected'?'我在這裡，隨時可以聊聊':'Your AI conversation partner'}</span></div><div className={`orb ${speaking?'active':''}`}><AudioLines size={19}/></div><div className="scene-note">MVP 靜態肖像 · 說話狀態動畫（非嘴型同步）</div></div>
-       <div className="call-controls"><div className="left-status"><div className={`audio-indicator ${status==='connected'?'is-on':''}`}><AudioLines size={19}/></div><div><strong>{status==='connected'?(speaking?'Luna 正在說話':listening?'正在聆聽你的聲音':'語音對話中'):'準備好開始了嗎？'}</strong><small>{status==='connected'?`已連線 · ${String(Math.floor(seconds/60)).padStart(2,'0')}:${String(seconds%60).padStart(2,'0')}`:'開啟麥克風，讓對話自然發生'}</small></div></div><div className="control-buttons">{status==='connected'&&<button className={`icon-call ${muted?'muted':''}`} title={muted?'開啟麥克風':'靜音'} onClick={toggleMute}>{muted?<MicOff size={20}/>:<Mic size={20}/>}</button>}<button className={`primary-call ${status==='connected'?'end':''}`} disabled={status==='connecting'} onClick={status==='connected'?stop:start}>{status==='connected'?<PhoneOff size={18}/>:<Phone size={18}/>} {status==='connected'?'結束通話':status==='connecting'?'連線中...':'開始對話'}</button></div></div>
+       <div className="avatar-scene"><div className="avatar-glow"/><div className="portrait-wrap"><AnimatedPortrait speaking={speaking} listening={listening} analyserRef={analyserRef} bowSignal={bowSignal}/></div><div className="scene-vignette"/><div className="avatar-name"><div className="name-row">Luna <span className="ai-badge">AI</span></div><span>{speaking?'正在回覆你...':listening?'正在聽你說話':status==='connected'?'我在這裡，隨時可以聊聊':'Your AI conversation partner'}</span></div><div className={`orb ${speaking?'active':''}`}><AudioLines size={19}/></div><div className="scene-note">2D 動態肖像 · 聲量驅動嘴部動畫（非音素同步）</div></div>
+       <div className="call-controls"><div className="left-status"><div className={`audio-indicator ${status==='connected'?'is-on':''}`}><AudioLines size={19}/></div><div><strong>{status==='connected'?(speaking?'Luna 正在說話':listening?'正在聆聽你的聲音':'語音對話中'):'準備好開始了嗎？'}</strong><small>{status==='connected'?`已連線 · ${String(Math.floor(seconds/60)).padStart(2,'0')}:${String(seconds%60).padStart(2,'0')}`:'開啟麥克風，讓對話自然發生'}</small></div></div><div className="control-buttons"><button className="gesture-button" type="button" title="讓 Luna 鞠躬致意" onClick={()=>setBowSignal(v=>v+1)}><Hand size={17}/> <span>鞠躬</span></button>{status==='connected'&&<button className={`icon-call ${muted?'muted':''}`} title={muted?'開啟麥克風':'靜音'} onClick={toggleMute}>{muted?<MicOff size={20}/>:<Mic size={20}/>}</button>}<button className={`primary-call ${status==='connected'?'end':''}`} disabled={status==='connecting'} onClick={status==='connected'?stop:start}>{status==='connected'?<PhoneOff size={18}/>:<Phone size={18}/>} {status==='connected'?'結束通話':status==='connecting'?'連線中...':'開始對話'}</button></div></div>
        {error&&<div className="error-bar" role="alert"><CircleHelp size={17}/><span>{error}</span><button onClick={()=>setError('')} aria-label="關閉錯誤"><X size={16}/></button></div>}
       </section>
       <section className="chat-panel"><div className="chat-title"><div><div className="chat-dot"/><strong>即時對話</strong><span>LIVE TRANSCRIPT</span></div><span className="transcript-chip"><Volume2 size={14}/> 語音 + 文字</span></div><div className="chat-body"><div className="date-divider"><span>今天的對話</span></div>{messages.map(m=><div className={`message ${m.role}`} key={m.id}>{m.role==='assistant'&&<div className="message-avatar"><Sparkles size={14}/></div>}<div className="message-main"><div className="message-meta">{m.role==='assistant'?'Luna':'You'} <span>{m.time}</span></div><div className="bubble">{m.text||'...'}</div></div></div>)}<div ref={bottom}/></div><div className="chat-footer"><div className="text-input-row"><input aria-label="輸入訊息" placeholder="輸入訊息，或直接開口說話..." value={input} maxLength={2000} onChange={e=>setInput(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendText()}}}/><button onClick={sendText} aria-label="傳送訊息" title="傳送訊息"><Send size={18}/></button></div><div className="chat-hint"><Headphones size={15}/> 開始對話後，可直接用聲音或文字互動</div></div></section>
     </div>
     <div className="footer-strip"><span>✦ Built for meaningful conversations</span><span>Powered by OpenAI Realtime API</span></div>
   </main>
-  {showSettings&&<div className="overlay" onClick={()=>setShowSettings(false)}><div className="modal" onClick={e=>e.stopPropagation()}><button className="modal-close" onClick={()=>setShowSettings(false)}><X size={20}/></button><div className="modal-icon"><Settings2/></div><h2>關於 Luna Live MVP</h2><p>這是使用 OpenAI Realtime API 的實作原型。聲音是 AI 生成，畫面使用 AI 生成的擬真人肖像，不是真人攝影機。</p><p>目前具備雙向即時語音、可打斷對話、對話逐字稿、文字輸入與三種模式。角色有呼吸／說話狀態動畫，但未整合真正的音素嘴型同步。</p><p>對話內容不會主動存入網站資料庫；OpenAI API 的資料處理仍依其適用政策。此版本僅供本機測試，不具公開部署所需的帳號、反濫用與完整費用控制。</p><button className="modal-done" onClick={()=>setShowSettings(false)}>了解</button></div></div>}
+  {showSettings&&<div className="overlay" onClick={()=>setShowSettings(false)}><div className="modal" onClick={e=>e.stopPropagation()}><button className="modal-close" onClick={()=>setShowSettings(false)}><X size={20}/></button><div className="modal-icon"><Settings2/></div><h2>關於 Luna Live MVP</h2><p>這是使用 OpenAI Realtime API 的實作原型。聲音是 AI 生成，畫面使用 AI 生成的擬真人肖像，不是真人攝影機。</p><p>目前具備雙向即時語音、可打斷對話、對話逐字稿、文字輸入與三種模式。角色具眨眼、微呼吸、鞠躬與依輸出音量驅動的近似嘴部動畫；尚未整合真正的音素級嘴型同步或 3D 肢體動畫。</p><p>對話內容不會主動存入網站資料庫；OpenAI API 的資料處理仍依其適用政策。此版本僅供本機測試，不具公開部署所需的帳號、反濫用與完整費用控制。</p><button className="modal-done" onClick={()=>setShowSettings(false)}>了解</button></div></div>}
  </div>
 }
