@@ -2,7 +2,7 @@ import { createClient, AnamEvent } from '@anam-ai/js-sdk';
 import { useEffect, useRef, useState } from 'react';
 import { Room, RoomEvent, Track } from 'livekit-client';
 import './digital.css';
-import { CharacterPicker, useCharacter } from './Characters';
+import './characters.css';
 import { useSharedMemory, getMemory, memoryStorageFailed } from './sharedMemory';
 import { normalizeHistory } from '../shared/memory.mjs';
 type Mode = 'companion' | 'korean' | 'business';
@@ -28,7 +28,7 @@ export default function DigitalHuman({ anam = false }: { anam?: boolean }) {
   const [error, setError] = useState(''); const [input, setInput] = useState('');
   const [muted, setMuted] = useState(false); const [subtitles, setSubtitles] = useState(true);
   const [speaking, setSpeaking] = useState(false); const [entries, setEntries] = useSharedMemory();
-  const [character, selectCharacter] = useCharacter();
+  const characterId = 'luna-office'; // Fixed server mapping to Eric's agent; ignore old appearance selections.
   const [latency, setLatency] = useState<number>(); const [videoReady, setVideoReady] = useState(false);
   const video = useRef<HTMLVideoElement>(null); const media = useRef<MediaStream | undefined>(undefined);
   const room = useRef<Room | undefined>(undefined); const socket = useRef<WebSocket | undefined>(undefined); const context = useRef<AudioContext | undefined>(undefined);
@@ -77,7 +77,7 @@ export default function DigitalHuman({ anam = false }: { anam?: boolean }) {
       if (stale()) { mic.getTracks().forEach(t => t.stop()); return; } media.current = mic;
       const ac = new AudioContext(); context.current = ac; await ac.resume();
       await ac.audioWorklet.addModule('/pcm-worklet.js'); if (stale()) return;
-      const data = await request<Session>(`${api}/sessions`, { mode, role, character: character.id, history: normalizeHistory(getMemory(), 40, 16000) });
+      const data = await request<Session>(`${api}/sessions`, { mode, role, character: characterId, history: normalizeHistory(getMemory(), 40, 16000) });
       if (stale()) { await request(`${api}/sessions/${data.id}/stop`, {}); return; }
       session.current = data.id;
       if (anam) {
@@ -163,28 +163,26 @@ export default function DigitalHuman({ anam = false }: { anam?: boolean }) {
   }
   const active = status !== 'idle';
   return <div className="dh-app">
-    <header className="dh-header"><a href="/">LUNA<span>LIVE</span></a><span>{anam ? 'Anam · 測試版' : 'LiveAvatar · 測試版'}</span><a href="/">原版語音介面 ↗</a></header>
-    <div className="dh-characters"><CharacterPicker selected={character.id} onSelect={id => { if (anam && active) { setError('更換動態角色前，請先結束目前對話。'); return; } selectCharacter(id); }}/>
-      <p>已選：{character.face} · {character.name}。{anam ? config?.characters?.includes(character.id) ? '已設定 Anam 動態角色。' : '這款尚未設定 Anam avatar ID，暫時無法啟動。' : `下方影片使用${config?.sandbox ? ' Wayne 測試角色' : '已設定的 LiveAvatar 角色'}。`}</p>
-      <a href={anam ? '/digital' : '/anam'}>{anam ? '切換 LiveAvatar' : '使用 Anam 動態人像'} ↗</a>
-      <p className="memory-note">共享記憶：{entries.length} 則 · 此瀏覽器保留最多 100 則；重連帶入最近 40 則（最多 16,000 字）。不跨裝置同步。
-      <button onClick={async () => { if (window.confirm('清除所有臉模的共享記憶並結束目前對話？')) { await stop(); setEntries([]); } }}>清除共享記憶</button>
+    <header className="dh-header"><a href="/">LUNA<span>LIVE</span></a><span>即時 AI 對話</span><span>Eric's agent</span></header>
+    <div className="dh-characters">
+      <p className="memory-note">對話記憶：{entries.length} 則 · 保存在此瀏覽器，重新連線可接續。
+      <button onClick={async () => { if (window.confirm('清除對話記憶並結束目前對話？')) { await stop(); setEntries([]); } }}>清除對話記憶</button>
       {memoryStorageFailed() && <span role="alert">瀏覽器儲存失敗，目前記憶僅保留到頁面關閉。</span>}</p></div>
     <div className="dh-size-controls" role="group" aria-label="人像大小"><span>人像大小</span>{([['small', '小'], ['medium', '中'], ['large', '大']] as const).map(([size, label]) => <button key={size} type="button" aria-pressed={avatarSize === size} onClick={() => changeAvatarSize(size)}>{label}</button>)}</div>
     <main className={`dh-layout dh-size-${avatarSize}`}><section className="dh-stage" aria-label="數位人影片">
       <div className="dh-video-frame"><video id="luna-avatar-video" ref={video} autoPlay playsInline muted={!anam} onPlaying={() => setVideoReady(true)} />
-      {!videoReady && <div className="dh-placeholder"><span className="dh-orb">L</span><h1>讓對話，面對面。</h1><p>{active ? '正在建立即時影像連線…' : '開始後顯示供應商的即時影片串流'}</p></div>}</div>
+      {!videoReady && <div className="dh-placeholder"><span className="dh-orb">L</span><h1>讓對話，面對面。</h1><p>{active ? '正在建立即時影像連線…' : "開始後，Eric's agent 會以即時影音與你對話"}</p></div>}</div>
       <div className="dh-status" role="status"><i className={active ? 'on' : ''}/>{status === 'connected' ? speaking ? anam ? 'Luna 語音回覆中' : 'Luna 正在說話' : recordingNow ? '收音中 · 說完請按按鈕' : '已連線 · 請按開始說話' : status === 'connecting' ? '連線中' : status === 'reconnecting' ? '重新連線中' : '尚未連線'}</div>
-      <div className="dh-caption">{anam ? 'ANAM · 每次最多 3 分鐘 · OpenAI 語音' : config?.sandbox ? 'SANDBOX · Wayne 測試角色 · 約 60 秒' : 'LUNA · AI 數位人'}{latency !== undefined && <small>伺服器語音結束 → avatar 開口事件：{latency} ms（非端到端量測）</small>}</div>
+      <div className="dh-caption">{anam ? "Eric's agent · 每次對話最多 3 分鐘" : config?.sandbox ? 'SANDBOX · Wayne 測試角色 · 約 60 秒' : 'LUNA · AI 數位人'}{latency !== undefined && <small>伺服器語音結束 → avatar 開口事件：{latency} ms（非端到端量測）</small>}</div>
     </section><aside className="dh-panel">
       <div className="dh-panel-head"><p className="dh-eyebrow">YOUR CONVERSATION</p><h2>今天，想聊什麼？</h2><label>對話模式<select value={mode} disabled={active} onChange={e => setMode(e.target.value as Mode)}>{Object.entries(modes).map(([key, title]) => <option key={key} value={key}>{title}</option>)}</select></label>
       {mode === 'business' && <label>模擬客戶角色<select value={role} disabled={active} onChange={e => setRole(e.target.value)}>{config?.roles.map(r => <option key={r}>{r}</option>)}</select><small>虛構演練，不代表真實客戶情報。</small></label>}
-      </div><div className="dh-messages" ref={messages} onScroll={e => { const el = e.currentTarget; followMessages.current = el.scrollHeight - el.clientHeight - el.scrollTop < 80; }} aria-live="polite">{entries.length === 0 && <p className="dh-empty">支援繁體中文、한국어、English。<br/>與角色語音介面共享記憶，保存在此瀏覽器。</p>}{subtitles && entries.map(e => <article key={e.id} className={e.role}><b>{e.role === 'user' ? '你' : 'Luna'}</b><p>{e.text}</p></article>)}</div>
+      </div><div className="dh-messages" ref={messages} onScroll={e => { const el = e.currentTarget; followMessages.current = el.scrollHeight - el.clientHeight - el.scrollTop < 80; }} aria-live="polite">{entries.length === 0 && <p className="dh-empty">支援繁體中文、한국어、English。<br/>對話記憶保存在此瀏覽器。</p>}{subtitles && entries.map(e => <article key={e.id} className={e.role}><b>{e.role === 'user' ? '你' : 'Luna'}</b><p>{e.text}</p></article>)}</div>
       <form onSubmit={e => { e.preventDefault(); text(); }}><input aria-label="文字訊息" maxLength={4000} value={input} onChange={e => setInput(e.target.value)} placeholder="也可以打字…" disabled={status !== 'connected'}/><button disabled={status !== 'connected' || !input.trim()}>傳送</button></form>
     </aside></main>
     <p className="dh-footnote">按「開始說話」收音，中途可停頓；按「我說完了」才會回答。</p>
-    <footer className="dh-controls"><button className="dh-primary" disabled={status !== 'connected' || finishing} aria-pressed={recordingNow} onClick={toggleTurn}>{finishing ? '送出中…' : recordingNow ? '我說完了' : '開始說話'}</button><button className="dh-primary" onClick={() => { if (active) void stop(); else void start(); }} disabled={!active && (!config?.configured || (anam && !config?.characters?.includes(character.id)))}>{active ? '結束對話' : '開始對話'}</button><button aria-pressed={muted} onClick={() => { muteRef.current = !muted; setMuted(!muted); }} disabled={!active}>{muted ? '開啟麥克風' : '靜音'}</button><button disabled={status !== 'connected'} onClick={() => socket.current?.send(JSON.stringify({ type: 'interrupt' }))}>打斷 Luna</button><button aria-pressed={subtitles} onClick={() => setSubtitles(!subtitles)}>逐字稿 {subtitles ? '開' : '關'}</button><button disabled={!active} onClick={() => { void room.current?.startAudio(); void video.current?.play(); audioElements.current.forEach(el => { void el.play(); }); }}>啟用播放</button></footer>
-    {!config?.configured && config && <p className="dh-notice">尚未完成影像供應商設定，因此即時影片功能未啟用。原版語音介面仍可使用。{anam && '請在 Render 設定 ANAM_API_KEY，並將 Luna 黑白 OL 的角色 ID 填入 ANAM_AVATAR_ID。'}</p>}
+    <footer className="dh-controls"><button className="dh-primary" disabled={status !== 'connected' || finishing} aria-pressed={recordingNow} onClick={toggleTurn}>{finishing ? '送出中…' : recordingNow ? '我說完了' : '開始說話'}</button><button className="dh-primary" onClick={() => { if (active) void stop(); else void start(); }} disabled={!active && (!config?.configured || (anam && !config?.characters?.includes(characterId)))}>{active ? '結束對話' : '開始對話'}</button><button aria-pressed={muted} onClick={() => { muteRef.current = !muted; setMuted(!muted); }} disabled={!active}>{muted ? '開啟麥克風' : '靜音'}</button><button disabled={status !== 'connected'} onClick={() => socket.current?.send(JSON.stringify({ type: 'interrupt' }))}>打斷 Luna</button><button aria-pressed={subtitles} onClick={() => setSubtitles(!subtitles)}>逐字稿 {subtitles ? '開' : '關'}</button><button disabled={!active} onClick={() => { void room.current?.startAudio(); void video.current?.play(); audioElements.current.forEach(el => { void el.play(); }); }}>啟用播放</button></footer>
+    {!config?.configured && config && <p className="dh-notice">即時人像尚未完成連線設定。{anam && "請在 Render 設定 ANAM_API_KEY，並將 Eric's agent 的 Avatar ID 填入 ANAM_AVATAR_ID。"}</p>}
     {error && <p className="dh-error" role="alert">{error}</p>}
     <p className="dh-footnote">Luna 是 AI。沒有啟用錄音錄影；供應商資料處理政策另行適用。鞠躬與指定手勢尚未支援。</p>
   </div>;
