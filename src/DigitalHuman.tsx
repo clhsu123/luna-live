@@ -12,6 +12,13 @@ type Session = { id: string; url: string; token: string; ticket: string; sandbox
 const modes: Record<Mode, string> = { companion: '日常陪伴', korean: '韓文練習', business: '半導體商務模擬' };
 export default function DigitalHuman({ anam = false }: { anam?: boolean }) {
   const api = anam ? '/api/anam' : '/api/avatar';
+  const [avatarSize, setAvatarSize] = useState<'small' | 'medium' | 'large'>(() => {
+    try { const saved = localStorage.getItem('luna.avatar-size.v1'); return saved === 'small' || saved === 'large' ? saved : 'medium'; } catch { return 'medium'; }
+  });
+  function changeAvatarSize(size: 'small' | 'medium' | 'large') {
+    setAvatarSize(size);
+    try { localStorage.setItem('luna.avatar-size.v1', size); } catch { /* Still works for this visit. */ }
+  }
   const anamClient = useRef<ReturnType<typeof createClient> | undefined>(undefined);
   const anamAudio = useRef<ReturnType<ReturnType<typeof createClient>['createAgentAudioInputStream']> | undefined>(undefined);
   const [config, setConfig] = useState<Configuration>();
@@ -163,7 +170,8 @@ export default function DigitalHuman({ anam = false }: { anam?: boolean }) {
       <p className="memory-note">共享記憶：{entries.length} 則 · 此瀏覽器保留最多 100 則；重連帶入最近 40 則（最多 16,000 字）。不跨裝置同步。
       <button onClick={async () => { if (window.confirm('清除所有臉模的共享記憶並結束目前對話？')) { await stop(); setEntries([]); } }}>清除共享記憶</button>
       {memoryStorageFailed() && <span role="alert">瀏覽器儲存失敗，目前記憶僅保留到頁面關閉。</span>}</p></div>
-    <main className="dh-layout"><section className="dh-stage" aria-label="數位人影片">
+    <div className="dh-size-controls" role="group" aria-label="人像大小"><span>人像大小</span>{([['small', '小'], ['medium', '中'], ['large', '大']] as const).map(([size, label]) => <button key={size} type="button" aria-pressed={avatarSize === size} onClick={() => changeAvatarSize(size)}>{label}</button>)}</div>
+    <main className={`dh-layout dh-size-${avatarSize}`}><section className="dh-stage" aria-label="數位人影片">
       <div className="dh-video-frame"><video id="luna-avatar-video" ref={video} autoPlay playsInline muted={!anam} onPlaying={() => setVideoReady(true)} />
       {!videoReady && <div className="dh-placeholder"><span className="dh-orb">L</span><h1>讓對話，面對面。</h1><p>{active ? '正在建立即時影像連線…' : '開始後顯示供應商的即時影片串流'}</p></div>}</div>
       <div className="dh-status" role="status"><i className={active ? 'on' : ''}/>{status === 'connected' ? speaking ? anam ? 'Luna 語音回覆中' : 'Luna 正在說話' : recordingNow ? '收音中 · 說完請按按鈕' : '已連線 · 請按開始說話' : status === 'connecting' ? '連線中' : status === 'reconnecting' ? '重新連線中' : '尚未連線'}</div>

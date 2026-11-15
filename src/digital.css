@@ -10,3 +10,20 @@
 .dh-panel{height:clamp(420px,70svh,680px)}
 .dh-messages{overscroll-behavior:contain;overflow-anchor:none}
 @media(max-width:850px){.dh-stage{height:clamp(320px,65svh,600px);min-height:0}.dh-panel{height:420px}}
+
+.dh-size-controls{display:flex;align-items:center;justify-content:center;gap:8px;margin-top:20px}
+.dh-size-controls span{font-size:13px;color:#a8bdb6;margin-right:6px}
+.dh-size-controls button{min-width:48px;padding:8px 16px}
+.dh-size-controls button[aria-pressed="true"]{background:#b8e8d7;border-color:#b8e8d7;color:#0a211b}
+.dh-size-small .dh-stage{height:clamp(320px,55svh,480px)}
+.dh-size-medium .dh-stage{height:clamp(460px,80svh,760px)}
+.dh-size-large .dh-stage{height:clamp(620px,105svh,1000px)}
+@media(min-width:851px){.dh-size-large{grid-template-columns:minmax(0,2.4fr) minmax(300px,1fr)}}
+@media(max-width:850px){
+  .dh-size-small .dh-stage{height:360px}
+  .dh-size-medium .dh-stage{height:520px}
+  .dh-size-large .dh-stage{height:700px}
+  .dh-size-small .dh-stage video{width:65%;margin:auto}
+  .dh-size-medium .dh-stage video{width:85%;margin:auto}
+  .dh-size-large .dh-stage video{width:100%;margin:auto}
+}
