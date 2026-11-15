@@ -444,6 +444,7 @@ export default function App() {
       sendEvent({
         type: 'session.update',
         session: {
+          type: 'realtime',
           instructions: promptForMode[m]
         }
       });
