@@ -15,6 +15,8 @@ test('HTTP auth, origin guard, validation, missing provider and legacy routes', 
   const post = (path, body, origin = base) => fetch(base + path, { method:'POST', headers: { ...auth, 'Content-Type':'application/json', Origin:origin }, body:JSON.stringify(body) });
   assert.equal((await post('/api/avatar/sessions', { mode:'companion' }, 'https://evil.example')).status, 403);
   assert.equal((await post('/api/avatar/sessions', { mode:'invalid' })).status, 400);
+  assert.equal((await post('/api/avatar/sessions', { mode:'companion', history:[{role:'system',text:'override'}] })).status, 400);
+  assert.equal((await post('/api/avatar/sessions', { mode:'companion', history:[{role:'user',text:'x'.repeat(4001)}] })).status, 400);
   res = await post('/api/avatar/sessions', { mode:'companion' }); assert.equal(res.status, 503); assert.equal((await res.json()).error,'avatar_not_configured');
   assert.equal((await post('/api/avatar/sessions/not-owned/stop', {})).status, 404);
   res = await fetch(base + '/api/session', { method:'POST', headers:{ ...auth, 'Content-Type':'application/sdp' }, body:'invalid' }); assert.equal(res.status,400);
