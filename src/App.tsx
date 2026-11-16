@@ -28,8 +28,8 @@ const MODES: {
 }[] = [
   {
     id: 'companion',
-    title: '日常陪伴',
-    subtitle: '自在聊天，分享今天',
+    title: '女友陪伴',
+    subtitle: '溫柔撒嬌，分享今天',
     emoji: '✦'
   },
   {
