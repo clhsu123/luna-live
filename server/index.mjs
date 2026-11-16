@@ -1,3 +1,5 @@
+import { voiceProvider } from './voice-provider.mjs';
+import { createHash } from 'node:crypto';
 import { companionPrompt } from '../shared/companion-prompt.mjs';
 import { createServer } from 'node:http';
 import { installDigitalHuman } from './digital-human.mjs';
@@ -21,7 +23,7 @@ setInterval(() => {
   for (const [ip, history] of cache) if (!history.some(t => t > cutoff)) cache.delete(ip);
 }, 60_000).unref();
 app.use((_req,res,next)=>{res.set('Cache-Control','no-store');res.set('X-Content-Type-Options','nosniff');next();});
-app.get('/api/health', (_req,res)=>res.json({ok:true,configured:Boolean(process.env.OPENAI_API_KEY && !process.env.OPENAI_API_KEY.includes('REPLACE_ME'))}));
+app.get('/api/health', (_req,res)=>res.json({ok:true,configured:voiceProvider().configured, aiProvider:voiceProvider().name}));
 installAuth(app);
 app.post('/api/session', express.text({type:['application/sdp','text/plain'],limit:'64kb'}), async(req,res)=>{
   if (!process.env.OPENAI_API_KEY || process.env.OPENAI_API_KEY.includes('REPLACE_ME')) return res.status(503).send('請先在 .env 設定 OPENAI_API_KEY。');

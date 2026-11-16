@@ -1,3 +1,4 @@
+import { voiceProvider, normalizeVoiceEvent } from './voice-provider.mjs';
 import { companionPrompt } from '../shared/companion-prompt.mjs';
 import { AnamProvider, AnamRelay, anamAvatars } from './anam-provider.mjs';
 import { normalizeHistory, replayEvents } from '../shared/memory.mjs';
@@ -13,6 +14,7 @@ const instructions = {
 };
 const roles = ['Startup CTO', 'SoC architect', 'ASIC design manager', 'CPU IP purchasing manager', 'Edge AI accelerator company', 'Touch IC manufacturer', 'Automotive semiconductor customer'];
 export function installDigitalHuman(app, server, { anam = false, providerOverride, aiSocketFactory = (url, options) => new WebSocket(url, options) } = {}) {
+  const voice = voiceProvider();
   const prefix = anam ? '/api/anam' : '/api/avatar';
   const sandbox = !anam && process.env.LIVEAVATAR_SANDBOX !== 'false';
   const provider = providerOverride || (anam ? new AnamProvider() : new LiveAvatarProvider({ apiKey: process.env.LIVEAVATAR_API_KEY, avatarId: process.env.LIVEAVATAR_AVATAR_ID, sandbox, allowPaid: process.env.ALLOW_PAID_AVATAR === 'true' }));
@@ -34,13 +36,13 @@ export function installDigitalHuman(app, server, { anam = false, providerOverrid
   const safeError = (res, error) => res.status(error instanceof ProviderError ? error.status : 502).json({ error: error instanceof ProviderError ? error.code : 'digital_human_unavailable' });
   app.get(`${prefix}/status`, (req, res) => {
     owner(req, res);
-    res.json({ characters: anam ? Object.keys(anamAvatars()) : [], configured: Boolean(origin && process.env.OPENAI_API_KEY && (anam ? process.env.ANAM_API_KEY && Object.keys(anamAvatars()).length : process.env.LIVEAVATAR_API_KEY && (sandbox || process.env.LIVEAVATAR_AVATAR_ID))), sandbox, paidEnabled: process.env.ALLOW_PAID_AVATAR === 'true', gestures: [], roles });
+    res.json({ characters: anam ? Object.keys(anamAvatars()) : [], aiProvider: voice.name, configured: Boolean(origin && voice.configured && (anam ? process.env.ANAM_API_KEY && Object.keys(anamAvatars()).length : process.env.LIVEAVATAR_API_KEY && (sandbox || process.env.LIVEAVATAR_AVATAR_ID))), sandbox, paidEnabled: process.env.ALLOW_PAID_AVATAR === 'true', gestures: [], roles });
   });
   app.post(`${prefix}/sessions`, csrf, json, async (req, res) => {
     const { mode, role, character, history = [] } = req.body || {};
     if (!Array.isArray(history) || history.length > 100 || history.some(e => !e || !['user', 'assistant'].includes(e.role) || typeof e.text !== 'string' || e.text.length > 4000)) return res.status(400).json({ error: 'invalid_history' });
     if (!Object.hasOwn(instructions, mode) || (role !== undefined && !roles.includes(role))) return res.status(400).json({ error: 'invalid_mode_or_role' });
-    if (!process.env.OPENAI_API_KEY) return res.status(503).json({ error: 'openai_not_configured' });
+    if (!voice.configured) return res.status(503).json({ error: `${voice.name}_not_configured` });
     const user = owner(req, res);
     try {
       const session = await sessions.create(user, character);
@@ -107,12 +109,12 @@ export function installDigitalHuman(app, server, { anam = false, providerOverrid
       try {
         const e = JSON.parse(raw.toString());
         if (e.type === 'session.state_updated' && e.state === 'connected' && !ai) {
-          ai = aiSocketFactory(`wss://api.openai.com/v1/realtime?model=${encodeURIComponent(process.env.OPENAI_REALTIME_MODEL || 'gpt-realtime')}`, { headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}` } });
+          ai = aiSocketFactory(voice.url, { headers: { Authorization: `Bearer ${voice.apiKey}` } });
           ai.on('error', fail); ai.on('close', cleanup);
-          ai.on('open', () => send(ai, { type: 'session.update', session: { type: 'realtime', instructions: `${instructions[ticket.mode]} ${ticket.mode === 'business' ? `Customer role: ${ticket.role || roles[0]}.` : ''}`, output_modalities: ['audio'], audio: { input: { format: { type: 'audio/pcm', rate: 24000 }, transcription: { model: 'gpt-4o-mini-transcribe' }, turn_detection: null }, output: { format: { type: 'audio/pcm', rate: 24000 }, voice: 'marin' } } } }));
+          ai.on('open', () => send(ai, { type: 'session.update', session: voice.session(`${instructions[ticket.mode]} ${ticket.mode === 'business' ? `Customer role: ${ticket.role || roles[0]}.` : ''}`) }));
           ai.on('message', raw => {
             try {
-              const e = JSON.parse(raw.toString());
+              const e = normalizeVoiceEvent(JSON.parse(raw.toString()));
               if (e.type === 'session.updated' && !ready) { for (const event of replayEvents(ticket.history)) send(ai, event); ready = true; clearTimeout(startup); tell({ type: 'bridge.ready' }); }
               if (e.type === 'input_audio_buffer.speech_started') { listening = true; lastActivity = Date.now(); interrupt(); }
               if (e.type === 'input_audio_buffer.speech_stopped') { listening = false; speechStoppedAt = Date.now(); lastActivity = Date.now(); }

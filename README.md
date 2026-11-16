@@ -113,3 +113,18 @@ OpenAI 繼續負責語音、對話及手動發話控制。Anam 僅接收 24 kHz 
 每次 Anam 最多 180 秒，閒置 45 秒自動結束；不自動重連。方案用量以 Anam 帳戶為準，本地限時不等於費用上限。請在 Anam 設定支出上限。Session token 使用 `sessionOptions.dataRetention` 關閉錄影與逐字稿保存，不等同 Enterprise Zero Data Retention。
 
 驗收：先確認真正影片出現，再說一句中文，按「我說完了」，確認嘴型和聲音同步；測試短句、連續兩輪、打斷、文字訊息、切換已設定角色、重連帶入記憶和結束後不再播放。程式測試無法取代具有效 key 與 avatar 的真實 WebRTC 驗收。
+
+## xAI realtime voice (production Anam interface)
+
+Set `XAI_API_KEY` in Render, server-side only. When present, the avatar bridge
+uses xAI for both conversation and realtime voice; otherwise it retains OpenAI.
+`AI_PROVIDER=xai|openai` explicitly overrides selection (no silent failover).
+Optional: `XAI_REALTIME_MODEL=grok-voice-latest`, `XAI_VOICE=eve`.
+Anam avatar settings, login, manual speech turns and browser-local memory are unchanged.
+The historical `/api/session` SDP endpoint remains OpenAI-only; the production UI
+uses `/api/anam/bridge`. `/api/health` and authenticated avatar status expose the
+selected provider but never credentials. Roll back with `AI_PROVIDER=openai` and
+redeploy, keeping the OpenAI key available.
+
+Validation: `npm test && npm run build`; actual xAI credentials, account credit,
+Anam lip-sync and iPhone Safari require a live conversation check.
