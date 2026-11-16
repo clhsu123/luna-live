@@ -128,3 +128,13 @@ redeploy, keeping the OpenAI key available.
 
 Validation: `npm test && npm run build`; actual xAI credentials, account credit,
 Anam lip-sync and iPhone Safari require a live conversation check.
+
+## Persistent trilingual Luna persona
+
+`shared/companion-prompt.mjs` is the version-controlled source for all three
+language styles and all conversation modes. Korean is the no-cue default; Luna
+mirrors Chinese (Traditional/Taiwan) or English input. Teaching comes first,
+flirting remains playful and non-explicit, and customer-facing examples stay
+professional. Hanja annotations are requested for written teaching material;
+realtime speech transcripts may remain verbatim without separate annotations.
+These persona rules persist across sessions, independently of browser-local memory.

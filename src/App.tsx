@@ -1,4 +1,4 @@
-import { companionPrompt } from '../shared/companion-prompt.mjs';
+import { companionPrompt, koreanPrompt, businessPrompt } from '../shared/companion-prompt.mjs';
 
 import { useEffect, useRef, useState } from 'react';
 import { CharacterPicker, useCharacter, portraitUrl } from './Characters';
@@ -46,13 +46,7 @@ const MODES: {
   }
 ];
 
-const promptForMode: Record<Mode, string> = {
-  companion: companionPrompt,
-  korean:
-    'You are Luna, a Korean tutor and conversation partner. Focus on Korean speaking practice using polite 해요체, with brief Traditional Chinese corrections when helpful. Speak slowly and ask one question at a time.',
-  business:
-    'You are Luna, roleplaying a Korean semiconductor CTO or purchasing manager. Discuss RISC-V CPU IP, PPA, licensing, royalties, SoC integration and evaluation. Challenge the user with realistic questions and provide specific feedback if requested. Use English unless asked otherwise.'
-};
+const promptForMode: Record<Mode, string> = { companion: companionPrompt, korean: koreanPrompt, business: businessPrompt };
 
 const clock = () =>
   new Date().toLocaleTimeString('zh-TW', {

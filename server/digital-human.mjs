@@ -1,5 +1,5 @@
 import { voiceProvider, normalizeVoiceEvent } from './voice-provider.mjs';
-import { companionPrompt } from '../shared/companion-prompt.mjs';
+import { companionPrompt, koreanPrompt, businessPrompt } from '../shared/companion-prompt.mjs';
 import { AnamProvider, AnamRelay, anamAvatars } from './anam-provider.mjs';
 import { normalizeHistory, replayEvents } from '../shared/memory.mjs';
 import { AudioBatcher } from './audio-batcher.mjs';
@@ -7,11 +7,7 @@ import { randomUUID } from 'node:crypto';
 import { WebSocket, WebSocketServer } from 'ws';
 import express from 'express';
 import { AvatarSessions, LiveAvatarProvider, ProviderError } from './avatar-provider.mjs';
-const instructions = {
-  companion: companionPrompt,
-  korean: 'You are Luna, a Korean tutor for a Traditional Chinese speaker. Prefer natural polite 해요체. Give brief grammar, vocabulary and pronunciation feedback without claiming you can diagnose pronunciation precisely. Adapt difficulty. Ask one question at a time.',
-  business: 'This is fictional semiconductor customer roleplay, never actual customer intelligence. Act as the selected Korean customer. Challenge a CPU IP salesperson on RISC-V vs Arm, PPA, licensing fees, maintenance, royalties, integration, evaluation, tape-out, competitors and technical objections. Do not invent Andes specifications. Give actionable feedback on request. English by default; switch language when asked.',
-};
+const instructions = { companion: companionPrompt, korean: koreanPrompt, business: businessPrompt };
 const roles = ['Startup CTO', 'SoC architect', 'ASIC design manager', 'CPU IP purchasing manager', 'Edge AI accelerator company', 'Touch IC manufacturer', 'Automotive semiconductor customer'];
 export function installDigitalHuman(app, server, { anam = false, providerOverride, aiSocketFactory = (url, options) => new WebSocket(url, options) } = {}) {
   const voice = voiceProvider();
