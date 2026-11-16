@@ -99,7 +99,7 @@ not end the turn. Existing provider session duration limits still apply.
 
 ## Anam 人像串接（/anam）
 
-OpenAI 繼續負責語音、對話及手動發話控制。Anam 僅接收 24 kHz mono PCM16 音訊並回傳同步影音。原 LiveAvatar 頁面 /digital 保留。
+Anam receives 24 kHz mono PCM16 audio and returns synchronized video. The AI and speech providers are selected by the environment configuration below. The original LiveAvatar page at /digital remains available.
 
 在 Render 的既有服務 Environment 新增（不要把 key 放進 GitHub 或前端）：
 
@@ -114,20 +114,31 @@ OpenAI 繼續負責語音、對話及手動發話控制。Anam 僅接收 24 kHz 
 
 驗收：先確認真正影片出現，再說一句中文，按「我說完了」，確認嘴型和聲音同步；測試短句、連續兩輪、打斷、文字訊息、切換已設定角色、重連帶入記憶和結束後不再播放。程式測試無法取代具有效 key 與 avatar 的真實 WebRTC 驗收。
 
-## xAI realtime voice (production Anam interface)
+## ChatGPT conversation with xAI speech on Anam
 
-Set `XAI_API_KEY` in Render, server-side only. When present, the avatar bridge
-uses xAI for both conversation and realtime voice; otherwise it retains OpenAI.
-`AI_PROVIDER=xai|openai` explicitly overrides selection (no silent failover).
-Optional: `XAI_REALTIME_MODEL=grok-voice-latest`, `XAI_VOICE=eve`.
-Anam avatar settings, login, manual speech turns and browser-local memory are unchanged.
-The historical `/api/session` SDP endpoint remains OpenAI-only; the production UI
-uses `/api/anam/bridge`. `/api/health` and authenticated avatar status expose the
-selected provider but never credentials. Roll back with `AI_PROVIDER=openai` and
-redeploy, keeping the OpenAI key available.
+Set `OPENAI_API_KEY`, `XAI_API_KEY`, `CHAT_PROVIDER=openai`, and
+`CHAT_OUTPUT=xai-tts` in the hosting service environment. Keep both keys on the
+server; never place them in frontend variables or Git. `OPENAI_REALTIME_MODEL`
+selects the OpenAI conversation model. `XAI_TTS_VOICE` selects the xAI voice
+(default `eve`). The older `AI_PROVIDER` switch remains available for the
+original single-provider realtime path.
 
-Validation: `npm test && npm run build`; actual xAI credentials, account credit,
-Anam lip-sync and iPhone Safari require a live conversation check.
+In this split mode, OpenAI produces the response text and xAI produces
+timestamped 24 kHz PCM speech. The selected Anam avatar receives that audio and
+performs its own real-time lip sync. xAI's current voice API does not control
+Anam facial expressions or gestures. Idle animation remains in the avatar
+provider. The `/api/anam/status` response reports provider names and readiness,
+never credentials. If xAI TTS is not configured, sessions are rejected with a
+configuration error rather than silently returning a silent avatar.
+
+Conversation history is Luna's existing browser-local shared memory: it is
+replayed as context when OpenAI starts a session and can be cleared in the UI.
+It is not the private memory attached to a user's ChatGPT account and does not
+sync across browsers or devices.
+
+Deployment still needs a live check with valid OpenAI and xAI credentials, an
+Anam avatar mapping, account credit, and the target browser. Automated checks
+cannot verify provider-side lip sync or speech quality.
 
 ## Persistent trilingual Luna persona
 

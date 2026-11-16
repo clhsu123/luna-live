@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Room, RoomEvent, Track } from 'livekit-client';
 import './digital.css';
 import './characters.css';
+import { CharacterPicker, useCharacter } from './Characters';
 import { useSharedMemory, getMemory, memoryStorageFailed } from './sharedMemory';
 import { normalizeHistory } from '../shared/memory.mjs';
 type Mode = 'companion' | 'korean' | 'business';
@@ -31,7 +32,8 @@ export default function DigitalHuman({ anam = false }: { anam?: boolean }) {
   const [error, setError] = useState(''); const [input, setInput] = useState('');
   const [muted, setMuted] = useState(false); const [subtitles, setSubtitles] = useState(true);
   const [speaking, setSpeaking] = useState(false); const [entries, setEntries] = useSharedMemory();
-  const characterId = 'luna-office'; // Preserve the existing server avatar mapping; ignore old appearance selections.
+  const [character, selectCharacter] = useCharacter();
+  const characterId = character.id;
   const [latency, setLatency] = useState<number>(); const [videoReady, setVideoReady] = useState(false);
   const video = useRef<HTMLVideoElement>(null); const media = useRef<MediaStream | undefined>(undefined);
   const room = useRef<Room | undefined>(undefined); const socket = useRef<WebSocket | undefined>(undefined); const context = useRef<AudioContext | undefined>(undefined);
@@ -199,6 +201,7 @@ export default function DigitalHuman({ anam = false }: { anam?: boolean }) {
       <p className="memory-note">對話記憶：{entries.length} 則 · 保存在此瀏覽器，重新連線可接續。
       <button onClick={async () => { if (window.confirm('清除對話記憶並結束目前對話？')) { await stop(); setEntries([]); } }}>清除對話記憶</button>
       {memoryStorageFailed() && <span role="alert">瀏覽器儲存失敗，目前記憶僅保留到頁面關閉。</span>}</p></details>
+    {anam && <><CharacterPicker selected={characterId} onSelect={selectCharacter}/>{config && !config.characters?.includes(characterId) && <p className="dh-notice">此造型尚未連結 Anam Avatar ID。請在伺服器設定 ANAM_AVATAR_MAP 後即可使用。</p>}</>}
     <div className="dh-size-controls" role="group" aria-label="人像大小"><span>視窗大小 · 完整上半身</span>{([['small', '小'], ['medium', '中'], ['large', '大']] as const).map(([size, label]) => <button key={size} type="button" aria-pressed={avatarSize === size} onClick={() => changeAvatarSize(size)}>{label}</button>)}</div>
     <main className={`dh-layout dh-size-${avatarSize}`}><section className="dh-stage" aria-label="數位人影片">
       <div className="dh-status" role="status"><i className={active ? 'on' : ''}/>{status === 'connected' ? speaking ? anam ? 'Luna 語音回覆中' : 'Luna 正在說話' : recordingNow ? '收音中 · 說完請按按鈕' : '已連線 · 請按開始說話' : status === 'connecting' ? '連線中' : status === 'reconnecting' ? '重新連線中' : '尚未連線'}</div>

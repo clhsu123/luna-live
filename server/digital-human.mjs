@@ -3,6 +3,7 @@ import { companionPrompt, koreanPrompt, businessPrompt } from '../shared/compani
 import { AnamProvider, AnamRelay, anamAvatars } from './anam-provider.mjs';
 import { normalizeHistory, replayEvents } from '../shared/memory.mjs';
 import { AudioBatcher } from './audio-batcher.mjs';
+import { synthesizeWithXai } from './xai-tts.mjs';
 import { randomUUID } from 'node:crypto';
 import { WebSocket, WebSocketServer } from 'ws';
 import express from 'express';
@@ -32,13 +33,15 @@ export function installDigitalHuman(app, server, { anam = false, providerOverrid
   const safeError = (res, error) => res.status(error instanceof ProviderError ? error.status : 502).json({ error: error instanceof ProviderError ? error.code : 'digital_human_unavailable' });
   app.get(`${prefix}/status`, (req, res) => {
     owner(req, res);
-    res.json({ characters: anam ? Object.keys(anamAvatars()) : [], aiProvider: voice.name, configured: Boolean(origin && voice.configured && (anam ? process.env.ANAM_API_KEY && Object.keys(anamAvatars()).length : process.env.LIVEAVATAR_API_KEY && (sandbox || process.env.LIVEAVATAR_AVATAR_ID))), sandbox, paidEnabled: process.env.ALLOW_PAID_AVATAR === 'true', gestures: [], roles });
+    const speechConfigured = !voice.xaiTts || voice.xaiTtsConfigured;
+    res.json({ characters: anam ? Object.keys(anamAvatars()) : [], aiProvider: voice.name, speechProvider: voice.xaiTts ? 'xai-tts' : voice.name, configured: Boolean(origin && voice.configured && speechConfigured && (anam ? process.env.ANAM_API_KEY && Object.keys(anamAvatars()).length : process.env.LIVEAVATAR_API_KEY && (sandbox || process.env.LIVEAVATAR_AVATAR_ID))), sandbox, paidEnabled: process.env.ALLOW_PAID_AVATAR === 'true', gestures: [], roles });
   });
   app.post(`${prefix}/sessions`, csrf, json, async (req, res) => {
     const { mode, role, character, history = [] } = req.body || {};
     if (!Array.isArray(history) || history.length > 100 || history.some(e => !e || !['user', 'assistant'].includes(e.role) || typeof e.text !== 'string' || e.text.length > 4000)) return res.status(400).json({ error: 'invalid_history' });
     if (!Object.hasOwn(instructions, mode) || (role !== undefined && !roles.includes(role))) return res.status(400).json({ error: 'invalid_mode_or_role' });
     if (!voice.configured) return res.status(503).json({ error: `${voice.name}_not_configured` });
+    if (voice.xaiTts && !voice.xaiTtsConfigured) return res.status(503).json({ error: 'xai_tts_not_configured' });
     const user = owner(req, res);
     try {
       const session = await sessions.create(user, character);
@@ -69,7 +72,7 @@ export function installDigitalHuman(app, server, { anam = false, providerOverrid
   function connect(client, ticket) {
     let record;
     try { record = sessions.get(ticket.user, ticket.id); } catch { client.close(1008); return; }
-    let ai; let avatar; let done = false; let ready = false; let responseId; let itemId; let utterance; let speakingAt; let speechStoppedAt; let generatedMs = 0; let active = false; let listening = false; let lastActivity = Date.now(); let inputBytes = 0;
+    let ai; let avatar; let done = false; let ready = false; let responseId; let itemId; let utterance; let speakingAt; let speechStoppedAt; let generatedMs = 0; let active = false; let listening = false; let lastActivity = Date.now(); let inputBytes = 0; let responseText = ''; let speechGeneration = 0;
     const tell = data => { if (client.readyState === WebSocket.OPEN) client.send(JSON.stringify(data)); };
     const send = (ws, data) => { if (ws?.readyState === WebSocket.OPEN && ws.bufferedAmount < 1_000_000) ws.send(JSON.stringify(data)); else throw Error('transport_backpressure'); };
     const cleanup = () => {
@@ -79,6 +82,7 @@ export function installDigitalHuman(app, server, { anam = false, providerOverrid
     const fail = () => { tell({ type: 'bridge.error', message: '連線中斷或供應商錯誤。請結束後重新連線。' }); cleanup(); };
     const batch = anam ? { append: audio => send(avatar, { type: 'agent.speak', event_id: utterance, audio }), clear() {}, flush() {} } : new AudioBatcher(audio => send(avatar, { type: 'agent.speak', event_id: utterance, audio }), { onError: fail });
     const interrupt = () => {
+      speechGeneration++;
       batch.clear();
       if (active) send(ai, { type: 'response.cancel' });
       if (utterance) {
@@ -87,6 +91,28 @@ export function installDigitalHuman(app, server, { anam = false, providerOverrid
         if (itemId) send(ai, { type: 'conversation.item.truncate', item_id: itemId, content_index: 0, audio_end_ms: Math.min(generatedMs, speakingAt ? Math.max(0, Date.now() - speakingAt) : 0) });
       }
       responseId = undefined; utterance = undefined; speakingAt = undefined; active = false;
+    };
+    const speakWithXai = async text => {
+      const generation = ++speechGeneration;
+      const result = await synthesizeWithXai(text);
+      if (done || generation !== speechGeneration) return;
+      const bytes = Buffer.from(result.audio, 'base64');
+      if (!bytes.length || bytes.length % 2) throw Error('invalid_xai_pcm');
+      utterance = randomUUID(); itemId = undefined; generatedMs = bytes.length / 48; speakingAt = Date.now();
+      tell({ type: 'avatar.speaking', value: true, responseLatencyMs: speechStoppedAt ? Date.now() - speechStoppedAt : null });
+      // Keep individual frames bounded for WebSocket and Anam's audio input.
+      const frameBytes = 12_000;
+      for (let offset = 0; offset < bytes.length; offset += frameBytes) {
+        if (done || generation !== speechGeneration) return;
+        const frame = bytes.subarray(offset, Math.min(offset + frameBytes, bytes.length));
+        if (anam) send(avatar, { type: 'agent.speak', event_id: utterance, audio: frame.toString('base64') });
+        else batch.append(frame.toString('base64'));
+        // Pace buffered REST audio at its 24 kHz playback rate so avatar lip
+        // sync sees a real-time stream instead of one instantaneous burst.
+        await new Promise(resolve => setTimeout(resolve, frame.length / 48));
+      }
+      if (done || generation !== speechGeneration) return;
+      batch.flush(); send(avatar, { type: 'agent.speak_end', event_id: utterance });
     };
     const startup = setTimeout(fail, 25_000);
     const heartbeat = setInterval(() => {
@@ -114,15 +140,26 @@ export function installDigitalHuman(app, server, { anam = false, providerOverrid
               if (e.type === 'session.updated' && !ready) { for (const event of replayEvents(ticket.history)) send(ai, event); ready = true; clearTimeout(startup); tell({ type: 'bridge.ready' }); }
               if (e.type === 'input_audio_buffer.speech_started') { listening = true; lastActivity = Date.now(); interrupt(); }
               if (e.type === 'input_audio_buffer.speech_stopped') { listening = false; speechStoppedAt = Date.now(); lastActivity = Date.now(); }
-              if (e.type === 'response.created') { responseId = e.response.id; active = true; generatedMs = 0; itemId = undefined; utterance = undefined; speakingAt = undefined; }
+              if (e.type === 'response.created') { responseId = e.response.id; responseText = ''; active = true; generatedMs = 0; itemId = undefined; utterance = undefined; speakingAt = undefined; }
+              if (voice.xaiTts && ['response.text.delta', 'response.output_text.delta'].includes(e.type) && e.response_id === responseId) {
+                responseText += e.delta || '';
+                tell({ ...e, type: 'response.output_audio_transcript.delta' });
+              }
               if (e.type === 'response.output_audio.delta' && e.response_id === responseId) {
                 itemId = e.item_id; utterance ||= randomUUID();
                 generatedMs += Buffer.from(e.delta, 'base64').length / 48;
                 batch.append(e.delta);
               }
               if (e.type === 'response.output_audio.done' && e.response_id === responseId && utterance) { batch.flush(); send(avatar, { type: 'agent.speak_end', event_id: utterance }); }
-              if (e.type === 'response.done') { active = false; if (e.response?.status === 'failed') fail(); }
-              if (['input_audio_buffer.speech_started', 'input_audio_buffer.speech_stopped', 'conversation.item.input_audio_transcription.completed', 'response.output_audio_transcript.delta', 'response.output_audio_transcript.done', 'response.created'].includes(e.type)) tell(e);
+              if (e.type === 'response.done') {
+                active = false;
+                if (e.response?.status === 'failed') { fail(); return; }
+                if (voice.xaiTts && responseText.trim()) {
+                  tell({ type: 'response.output_audio_transcript.done', response_id: responseId, transcript: responseText });
+                  void speakWithXai(responseText.trim()).catch(fail);
+                }
+              }
+              if (['input_audio_buffer.speech_started', 'input_audio_buffer.speech_stopped', 'conversation.item.input_audio_transcription.completed', 'response.output_audio_transcript.delta', 'response.output_audio_transcript.done', 'response.created'].includes(e.type) && !voice.xaiTts) tell(e);
               if (e.type === 'error') fail();
             } catch { fail(); }
           });
