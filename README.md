@@ -136,7 +136,7 @@ Anam receives 24 kHz mono PCM16 audio and returns synchronized video. The AI and
 
 保留原有 `OPENAI_API_KEY`、`OPENAI_REALTIME_MODEL`、`APP_PASSWORD`、`APP_ORIGIN`。儲存後部署，打開 `/anam`。沒有設定角色時會停用開始按鈕。更換動態角色先結束連線；所有角色沿用同瀏覽器共享記憶。
 
-每次 Anam 最多 180 秒，閒置 45 秒自動結束；不自動重連。方案用量以 Anam 帳戶為準，本地限時不等於費用上限。請在 Anam 設定支出上限。Session token 使用 `sessionOptions.dataRetention` 關閉錄影與逐字稿保存，不等同 Enterprise Zero Data Retention。
+每次 Anam 最多 600 秒，閒置 45 秒自動結束；不自動重連。方案用量以 Anam 帳戶為準，本地限時不等於費用上限。請在 Anam 設定支出上限。Session token 使用 `sessionOptions.dataRetention` 關閉錄影與逐字稿保存，不等同 Enterprise Zero Data Retention。
 
 驗收：先確認真正影片出現，再說一句中文，按「我說完了」，確認嘴型和聲音同步；測試短句、連續兩輪、打斷、文字訊息、切換已設定角色、重連帶入記憶和結束後不再播放。程式測試無法取代具有效 key 與 avatar 的真實 WebRTC 驗收。
 
