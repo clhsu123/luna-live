@@ -24,7 +24,7 @@ test('HTTP auth, origin guard, validation, missing provider and legacy routes', 
   assert.equal((await post('/api/anam/sessions', { mode:'companion' }, 'https://evil.example')).status,403);
   assert.equal((await post('/api/avatar/sessions/not-owned/stop', {})).status, 404);
   res = await fetch(base + '/api/session', { method:'POST', headers:{ ...auth, 'Content-Type':'application/sdp' }, body:'invalid' }); assert.equal(res.status,400);
-  for (const path of ['/', '/digital', '/anam', '/pcm-worklet.js']) assert.equal((await fetch(base + path, { headers:auth })).status,200);
+  for (const path of ['/', '/digital', '/anam', '/portraits', '/wardrobe/office.png', '/wardrobe/after-hours.png', '/pcm-worklet.js']) assert.equal((await fetch(base + path, { headers:auth })).status,200);
   // Safari uses a same-origin session cookie, with no native Basic challenge.
   res = await fetch(base + '/', {redirect:'manual'});
   assert.equal(res.status,303); assert.equal(res.headers.get('location'),'/login');

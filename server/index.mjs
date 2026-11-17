@@ -48,6 +48,7 @@ app.post('/api/session', express.text({type:['application/sdp','text/plain'],lim
   }catch(err){console.error('Realtime session error',err);res.status(502).send('OpenAI realtime connection temporarily unavailable.');}
 });
 const closeDigitalHuman = installDigitalHuman(app, server);
+const closePortrait = installDigitalHuman(app, server, { portrait: true });
 const closeAnam = installDigitalHuman(app, server, { anam: true });
 // In production deploy the built frontend with this server.
 if(process.env.NODE_ENV==='production'){
@@ -56,4 +57,4 @@ if(process.env.NODE_ENV==='production'){
 }
 server.listen(port,'0.0.0.0',()=>console.log(`Luna API running at http://127.0.0.1:${port}`));
 
-process.on('SIGTERM', () => { void Promise.allSettled([closeDigitalHuman(), closeAnam()]).finally(() => server.close()); setTimeout(() => process.exit(0), 25000).unref(); });
+process.on('SIGTERM', () => { void Promise.allSettled([closeDigitalHuman(), closeAnam(), closePortrait()]).finally(() => server.close()); setTimeout(() => process.exit(0), 25000).unref(); });

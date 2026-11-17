@@ -1,6 +1,8 @@
 // Server-only configuration. Never expose apiKey in status responses.
 export function voiceProvider(env = process.env) {
-  const name = env.AI_PROVIDER || (env.XAI_API_KEY ? 'xai' : 'openai');
+  // CHAT_PROVIDER selects the language model independently from the voice. The
+  // legacy AI_PROVIDER switch remains supported for existing deployments.
+  const name = env.CHAT_PROVIDER || env.AI_PROVIDER || (env.OPENAI_API_KEY ? 'openai' : 'xai');
   if (!['openai', 'xai'].includes(name)) throw new Error('invalid_ai_provider');
   const xai = name === 'xai';
   const apiKey = xai ? env.XAI_API_KEY : env.OPENAI_API_KEY;
@@ -14,10 +16,13 @@ export function voiceProvider(env = process.env) {
         instructions, voice: env.XAI_VOICE || 'eve', turn_detection: { type: null },
         audio: { input: { format }, output: { format } },
       } : {
-        type: 'realtime', instructions, output_modalities: ['audio'],
+        type: 'realtime', instructions,
+        output_modalities: env.CHAT_OUTPUT === 'xai-tts' ? ['text'] : ['audio'],
         audio: { input: { format, transcription: { model: 'gpt-4o-mini-transcribe' }, turn_detection: null }, output: { format, voice: 'marin' } },
       };
     },
+    xaiTts: name === 'openai' && env.CHAT_OUTPUT === 'xai-tts',
+    xaiTtsConfigured: Boolean(env.XAI_API_KEY && !env.XAI_API_KEY.includes('REPLACE_ME')),
   };
 }
 export function normalizeVoiceEvent(event) {
