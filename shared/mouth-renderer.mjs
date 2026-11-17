@@ -5,7 +5,7 @@ export function createMouthRenderer(canvas) {
  const vertex=`attribute vec2 p; varying vec2 uv; void main(){uv=vec2((p.x+1.)*.5,(1.-p.y)*.5);gl_Position=vec4(p,0.,1.);}`;
  const fragment=`precision highp float; varying vec2 uv; uniform sampler2D frame; uniform vec2 size; uniform vec4 mouth; uniform float gap; uniform float level;
  void main(){vec2 px=uv*size;vec2 d=px-mouth.xy;float c=cos(mouth.w),s=sin(mouth.w);vec2 q=vec2(c*d.x+s*d.y,-s*d.x+c*d.y);float halfWidth=mouth.z*.6;
- if(halfWidth>1. && abs(q.x)<halfWidth){float edge=sqrt(max(0.,1.-pow(q.x/halfWidth,2.)));float radius=mouth.z*.75;float oldGap=min(gap,radius*.65)*edge;float newGap=(.6+mouth.z*.13*level)*edge;float y=abs(q.y);
+ if(halfWidth>1. && abs(q.x)<halfWidth){float edge=sqrt(max(0.,1.-(q.x/halfWidth)*(q.x/halfWidth)));float radius=mouth.z*.75;float oldGap=min(gap,radius*.65)*edge;float newGap=(.6+mouth.z*.13*level)*edge;float y=abs(q.y);
  if(y<radius){float mapped=y<newGap?y*oldGap/max(newGap,.001):oldGap+(y-newGap)*(radius-oldGap)/max(radius-newGap,.001);q.y=sign(q.y)*mix(y,mapped,smoothstep(0.,.25,edge));px=mouth.xy+vec2(c*q.x-s*q.y,s*q.x+c*q.y);}}
  gl_FragColor=texture2D(frame,clamp(px/size,vec2(0.),vec2(1.)));}`;
  const shaders=[];
