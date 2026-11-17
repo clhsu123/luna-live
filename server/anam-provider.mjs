@@ -10,7 +10,7 @@ export function anamAvatars(env = process.env) {
   return mapping;
 }
 export class AnamProvider {
-  constructor({ env = process.env, fetchImpl = fetch } = {}) { this.env = env; this.fetch = fetchImpl; }
+  constructor({ env = process.env, fetchImpl = fetch, log = entry => console.warn(JSON.stringify(entry)) } = {}) { this.env = env; this.fetch = fetchImpl; this.log = log; }
   async create(character) {
     const avatarId = anamAvatars(this.env)[character];
     if (!this.env.ANAM_API_KEY) throw new ProviderError('anam_api_key_required', 503);
@@ -23,7 +23,13 @@ export class AnamProvider {
         signal: AbortSignal.timeout(20000),
       });
     } catch { throw new ProviderError('anam_unavailable'); }
-    if (!response.ok) throw new ProviderError(response.status === 429 ? 'anam_quota_or_rate_limit' : 'anam_session_failed', response.status === 429 ? 429 : 502);
+    if (!response.ok) {
+      const codes = { 400: 'anam_configuration_rejected', 401: 'anam_authentication_failed', 402: 'anam_billing_required', 403: 'anam_access_denied', 404: 'anam_resource_not_found', 422: 'anam_configuration_rejected', 429: 'anam_quota_or_rate_limit' };
+      const code = codes[response.status] || (response.status >= 500 ? 'anam_provider_error' : 'anam_session_failed');
+      // Never log upstream bodies/headers: they may contain credentials or session tokens.
+      this.log({ event: 'anam_session_rejected', upstreamStatus: response.status, code });
+      throw new ProviderError(code, response.status === 429 ? 429 : 502);
+    }
     let result; try { result = await response.json(); } catch { throw new ProviderError('anam_invalid_response'); }
     if (typeof result?.sessionToken !== 'string' || !result.sessionToken) throw new ProviderError('anam_invalid_response');
     return { id: randomUUID(), client: { sessionToken: result.sessionToken } };
