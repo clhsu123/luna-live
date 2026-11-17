@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useId } from 'react';
 import { motionSource, portraitFrame } from '../shared/portrait-motion.mjs';
 // Viewports reference the approved original sheets without generating new faces.
 export const portraits = Array.from({length:20}, (_, index) => ({id:index+1, label:`${String(index+1).padStart(2,'0')} · ${index<10?'After Hours':'Office'}`}));
@@ -19,6 +19,7 @@ export function PortraitPicker({selected,onSelect}:{selected:number;onSelect:(id
 
 // Mounted with key=id, so changing character cannot retain an older load or timer.
 export function AnimatedPortrait({id,speaking,paused}: {id:number;speaking:boolean;paused:boolean}) {
+ const clipId=useId();
  const [frame,setFrame]=useState(0), [loaded,setLoaded]=useState(false), [failed,setFailed]=useState(false);
  useEffect(()=>{
   // HTMLImageElement reliably reports cached and fresh loads; SVG image load
@@ -44,7 +45,8 @@ export function AnimatedPortrait({id,speaking,paused}: {id:number;speaking:boole
  },[loaded,failed,paused,speaking]);
  if(failed)return <><Portrait id={id}/><span className="motion-load-error" role="status">動畫載入失敗，暫時顯示原圖。</span></>;
  return <svg className="wardrobe-portrait wardrobe-motion" viewBox="0 0 384 512" role="img" aria-label={`${portraits[id-1].label} · 逐格動畫`} data-frame={frame} data-loaded={loaded} preserveAspectRatio="xMidYMid meet">
-  <image href={motionSource(id)} width="1536" height="1024" x={-(frame%4)*384} y={-Math.floor(frame/4)*512}/>
+  <defs><clipPath id={clipId}><rect width="384" height="512"/></clipPath></defs>
+  <g clipPath={`url(#${clipId})`}><image href={motionSource(id)} width="1536" height="1024" x={-(frame%4)*384} y={-Math.floor(frame/4)*512}/></g>
   {!loaded&&<text x="192" y="256" textAnchor="middle" fill="white">載入角色動畫…</text>}
  </svg>;
 }
