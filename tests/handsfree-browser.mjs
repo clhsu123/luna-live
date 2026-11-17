@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 // Exercise the real browser microphone/AudioWorklet path. Only the app's
 // provider-facing REST and WebSocket boundary is mocked; no paid calls occur.
 const origin = 'http://localhost:18788';
+const existingFontStylesheet = 'https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Noto+Sans+TC:wght@400;500;600;700&display=swap';
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
 async function until(check, message, timeoutMs = 5000) {
   const deadline = Date.now() + timeoutMs;
@@ -46,6 +47,11 @@ try {
   page.on('pageerror', error => errors.push(error.message));
   await context.route('**/*', async route => {
     const request = route.request(), url = new URL(request.url());
+    if (request.method() === 'GET' && url.href === existingFontStylesheet) {
+      // Existing src/style.css import; keep this audio test fully offline.
+      await route.fulfill({ status: 200, contentType: 'text/css', body: '' });
+      return;
+    }
     if (url.origin !== origin) {
       externalRequests.push(url.origin);
       await route.abort();
