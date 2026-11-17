@@ -169,7 +169,7 @@ export default function DigitalHuman({ anam = false, portrait = false }: { anam?
           if (e.type === 'bridge.ready') { ready = true; setStatus('connected'); }
           if (e.type === 'turn.empty') setError('沒有收到足夠音訊，請再按「開始說話」。');
           if (e.type === 'bridge.error') { void stop(); setError(e.message); }
-          if (e.type === 'avatar.speaking') { setSpeaking(e.value); if (typeof e.responseLatencyMs === 'number') setLatency(e.responseLatencyMs); }
+          if (e.type === 'avatar.speaking') { if (!portrait || e.value) setSpeaking(e.value); if (typeof e.responseLatencyMs === 'number') setLatency(e.responseLatencyMs); }
           if (e.type === 'conversation.item.input_audio_transcription.completed') setEntries(prev => [...prev, { id: e.item_id, role: 'user', text: e.transcript, time: '' }]);
           if (e.type === 'response.output_audio_transcript.delta' || e.type === 'response.output_audio_transcript.done') {
             setEntries(prev => {
