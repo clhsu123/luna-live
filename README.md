@@ -151,13 +151,15 @@ realtime speech transcripts may remain verbatim without separate annotations.
 These persona rules persist across sessions, independently of browser-local memory.
 
 
-## Original 20-style portrait mode
+## Independent 20-style animation mode
 
-`/portraits` adds 20 selectable static views from the approved After Hours
-(01–10) and Office (11–20) sheets. The source PNGs are unchanged; SVG viewports
-exclude sheet headers and retain each upper-body composition. The page labels
-these as static images without animation or lip sync. Selection persists locally
-and can change during a call. `/`, `/anam`, and `/digital` keep the Anam interface.
+`/portraits` adds 20 selectable characters derived from the approved After Hours
+(01–10) and Office (11–20) sheets. Each character has its own eight-frame sprite
+with blink, head turns, nod and wave poses. The original sheets remain unchanged
+for picker thumbnails and load-error fallback. These are discrete frame animations,
+not continuous video or phoneme-synchronized lips. Selection persists locally
+and can change during a call. Animation can be paused, respects reduced-motion
+preferences and stops when the page is hidden. Only the selected sprite is loaded. `/`, `/anam`, and `/digital` keep the Anam interface.
 
 Portrait calls use `/api/portrait`, the same authenticated manual-turn bridge and
 provider configuration, with browser PCM playback. They allocate no Anam or
@@ -184,5 +186,6 @@ No ChatGPT private-memory import or writeback is implemented by this change.
 
 See [PR-4-VALIDATION.md](PR-4-VALIDATION.md) for verified checks, provider contracts,
 remaining release blockers, required environment variables and rollback steps.
-The 20 current portrait views are still static: the requested animated-character
-experience is not complete. Do not describe image selection as completed animation.
+Twenty independent sprite animations are implemented. Live provider acceptance
+and visual motion-quality acceptance remain release gates. See public/wardrobe/motion/README.md
+for generation provenance and limitations.

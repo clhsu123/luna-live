@@ -1,6 +1,6 @@
 # PR #4 pre-production validation — 2026-11-17
 
-Status: **NOT READY TO MERGE**. No production deployment or main update authorized by this review.
+Status: **NOT READY TO MERGE**. The owner approved production merge/deploy after successful acceptance. Acceptance is not yet complete.
 
 Reviewed head: `a65dc8f355c4fe85990ddbdc8549d6572f0ca9b9` (four commits).
 Base and currently live Render commit: `6b34e9138a9b947ac004192921d2ab37601b6622`.
@@ -10,8 +10,9 @@ PR: https://github.com/clhsu123/luna-live/pull/4
 
 Retain Anam as the current dynamic avatar. Do not enable a new LiveAvatar route.
 The owner clarified that all 20 alternative anime-style characters must move.
-Their current implementation uses static SVG crops of two approved sheets; animation
-behavior/assets remain outstanding. Do not claim blinking, gestures or lip sync.
+Twenty eight-frame sprite sheets now provide actual blink, head-turn, nod and wave poses.
+They are independent of Anam, with no lip sync. Discrete pose changes are not continuous
+video. Motion-quality and browser acceptance remain required.
 No private ChatGPT memory integration is implemented. Existing browser-local history
 and its bounded replay remain the context source.
 
@@ -36,7 +37,7 @@ and its bounded replay remain the context source.
 
 - `npm ci --ignore-scripts`: passed against the lockfile.
 - `npm run build`: passed; existing ~736 kB avatar chunk size warning remains.
-- `npm test`: 40 passed, 0 failed. Includes PCM ordering/end/drain/stale callbacks,
+- `npm test` with all animation assets: 44 passed, 0 failed. Includes asset and timeline tests. Includes PCM ordering/end/drain/stale callbacks,
   interrupted and repeated split responses, close during TTS, absent speech credentials,
   malformed codec/base64, Anam relay timing, auth, ownership and memory replay.
 - Additional targeted split tests cover cancellation during paced PCM transmission.
@@ -108,14 +109,14 @@ Required values, stored only in Render's secure environment:
 
 ## Release and rollback procedure — not executed
 
-1. Finish the requested 20-character motion experience and review all original crops
+1. Review the implemented 20-character motion experience and all original crops
    on desktop/mobile without replacing Anam.
 2. Run the same locked install, build/tests and browser checks on the exact final head;
    require green CI and a staging call using approved server-side credentials.
 3. Exercise Korean/Chinese/English speech, text, at least two turns, barge-in during
    synthesis/playback, switching appearance, history reconnect, disconnect and stop.
    Check that stop ends billing sessions and no old audio plays afterward.
-4. Obtain explicit production merge/deploy approval. Record the current live SHA and
+4. Production merge/deploy approval is already recorded, conditional on acceptance. Record the current live SHA and
    configuration before merging. Do not expose secrets in the PR or logs.
 5. Merge PR #4 only after approval; main auto-deploy triggers Render. Verify the live
    deployment SHA, /login, /api/health, authenticated status and real speech/video.
@@ -123,3 +124,20 @@ Required values, stored only in Render's secure environment:
    successful Render commit and revert the merge on main using a normal revert commit
    (never force-push). Account for auto-deploy when coordinating the revert. Restore
    environment settings only if separately approved changes had been made.
+
+## Animation implementation
+
+Twenty distinct 1536x1024 PNG sprite sheets (4x2 frames), approximately 43 MB total,
+are under public/wardrobe/motion/. Hashes and sizes are in manifest.json. Original
+source sheets are unchanged. The selected sheet loads on demand; thumbnails use the
+original sheets. Pause, reduced-motion and hidden-page handling stop the frame timer.
+Failed animation loads explicitly fall back to the original still image.
+
+GitHub CI now installs Playwright Chromium and runs secret-free desktop/mobile
+wardrobe checks, publishing screenshots as a workflow artifact. The local Chromium
+restriction remains; CI results must be checked after the animation commit.
+
+All sheets were visually inspected for distinct characters and blink/head/gesture
+poses. Some generated frames have very tight hairline margins and small pose/framing
+variation. The eight-frame style is intentionally discrete; user acceptance of
+motion smoothness is outstanding. It must not be advertised as continuous video.

@@ -23,3 +23,11 @@ jobs:
       - run: npm ci --ignore-scripts
       - run: npm run build
       - run: npm test
+      - run: npx playwright install --with-deps chromium
+      - run: node tests/run-wardrobe-browser.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: wardrobe-browser-screenshots
+          path: artifacts/*.png
+          if-no-files-found: ignore
