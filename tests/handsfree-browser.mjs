@@ -31,14 +31,19 @@ try {
       window.__handsfreeTracks.push(...stream.getAudioTracks());
       return stream;
     };
+    // Worklet fetches need not emit page response events. Observe successful
+    // native loading without substituting the processor or its PCM output.
+    window.__handsfreeWorklets = [];
+    const addModule = AudioWorklet.prototype.addModule;
+    AudioWorklet.prototype.addModule = async function (url, options) {
+      const result = await addModule.call(this, url, options);
+      window.__handsfreeWorklets.push(new URL(url, location.href).pathname);
+      return result;
+    };
   });
   const page = await context.newPage();
   const errors = [], sessions = [], stopped = [], connections = [], externalRequests = [];
-  let workletLoaded = false;
   page.on('pageerror', error => errors.push(error.message));
-  page.on('response', response => {
-    if (new URL(response.url()).pathname === '/pcm-worklet.js' && response.ok()) workletLoaded = true;
-  });
   await context.route('**/*', async route => {
     const request = route.request(), url = new URL(request.url());
     if (url.origin !== origin) {
@@ -99,7 +104,7 @@ try {
   assert.equal(automatic.frames.length, 0, 'must wait for bridge.ready before sending microphone audio');
   emit(automatic, { type: 'bridge.ready' });
   await until(() => automatic.frames.length >= 3, 'automatic mode did not send actual worklet PCM');
-  assert.equal(workletLoaded, true, 'actual /pcm-worklet.js must load');
+  assert.equal(await page.evaluate(() => window.__handsfreeWorklets.includes('/pcm-worklet.js')), true, 'actual /pcm-worklet.js must load');
   assert(automatic.frames.every(frame => frame.length === 4800), 'worklet must emit 100 ms of PCM16 at 24 kHz');
   await until(() => automatic.frames.some(frame => frame.some(byte => byte !== 0)), 'fake microphone did not produce non-silent samples', 15000);
   assert(!automatic.controls.some(event => ['turn.start', 'turn.end'].includes(event.type)));
@@ -132,6 +137,7 @@ try {
   const acceptedText = automatic.controls.filter(event => event.type === 'text')[1];
   emit(automatic, { type: 'text.accepted', client_id: acceptedText.client_id });
   await until(async () => await input.inputValue() === '', 'accepted draft did not clear');
+  assert.equal(await page.locator('.dh-error').count(), 0, 'accepted retry left the previous blocked-turn warning visible');
   assert.equal(await page.locator('.dh-messages article.user').count(), 1);
   emit(automatic, { type: 'text.accepted', client_id: acceptedText.client_id });
   await wait(50);

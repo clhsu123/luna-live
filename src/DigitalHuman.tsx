@@ -187,6 +187,7 @@ export default function DigitalHuman({ anam = false, portrait = false, companion
           if ((e.type === 'text.accepted' || e.type === 'turn.text_blocked') && e.client_id === pendingText.current?.id) {
             const pending = pendingText.current; pendingText.current = undefined; setTextSending(false);
             if (pending && e.type === 'text.accepted') {
+              setError('');
               setEntries(prev => [...prev, { id: pending.id, role: 'user', text: pending.text, time: '' }]);
               setInput(value => value === pending.text ? '' : value);
             } else if (e.type === 'turn.text_blocked') setError('語音回合尚在處理，請稍後再傳送文字。');
