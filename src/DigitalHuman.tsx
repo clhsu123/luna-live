@@ -9,6 +9,7 @@ import { PortraitPicker, AnimatedPortrait, usePortrait } from './Portraits';
 import { CharacterPicker, useCharacter } from './Characters';
 import { useSharedMemory, getMemory, memoryStorageFailed } from './sharedMemory';
 import { normalizeHistory } from '../shared/memory.mjs';
+type TurnMode = 'manual' | 'automatic';
 type Mode = 'companion' | 'korean' | 'business';
 type Entry = { id: string; role: 'user' | 'assistant'; text: string; time: string };
 type Configuration = { configured: boolean; sandbox: boolean; roles: string[]; characters?: string[] };
@@ -22,6 +23,13 @@ export default function DigitalHuman({ anam = false, portrait = false, companion
   function changeAvatarSize(size: 'small' | 'medium' | 'large') {
     setAvatarSize(size);
     try { localStorage.setItem('luna.avatar-size.v1', size); } catch { /* Still works for this visit. */ }
+  }
+  const [turnMode, setTurnMode] = useState<TurnMode>(() => {
+    try { return localStorage.getItem('luna.turn-mode.v1') === 'automatic' ? 'automatic' : 'manual'; } catch { return 'manual'; }
+  });
+  function changeTurnMode(value: TurnMode) {
+    setTurnMode(value);
+    try { localStorage.setItem('luna.turn-mode.v1', value); } catch { /* Works for this visit. */ }
   }
   const [portraitId, selectPortrait] = usePortrait();
   const [motionChoice, setMotionChoice] = useState<boolean | null>(null);
@@ -60,6 +68,8 @@ export default function DigitalHuman({ anam = false, portrait = false, companion
   const session = useRef<string | undefined>(undefined); const generation = useRef(0); const busy = useRef(false);
   const audioElements = useRef<HTMLMediaElement[]>([]); const muteRef = useRef(false);
   const recording = useRef(false); const recordedAt = useRef(0);
+  const pendingText = useRef<{id: string; text: string} | undefined>(undefined);
+  const [textSending, setTextSending] = useState(false);
   const [recordingNow, setRecordingNow] = useState(false); const [finishing, setFinishing] = useState(false);
   const messages = useRef<HTMLDivElement>(null);
   const followMessages = useRef(true);
@@ -68,7 +78,7 @@ export default function DigitalHuman({ anam = false, portrait = false, companion
     const value = await res.json(); if (!res.ok) throw Error(value.error || `Request failed: ${res.status}`); return value;
   }
   async function stop() {
-    clearPcm(); pcmPlayback.current = undefined; recording.current = false; setRecordingNow(false); setFinishing(false);
+    clearPcm(); pcmPlayback.current = undefined; pendingText.current = undefined; setTextSending(false); recording.current = false; setRecordingNow(false); setFinishing(false);
     generation.current++; busy.current = false;
     const previousAnam = anamClient.current; anamClient.current = undefined; anamAudio.current = undefined;
     void previousAnam?.stopStreaming().catch(() => {}); socket.current?.close(); socket.current = undefined;
@@ -118,6 +128,7 @@ export default function DigitalHuman({ anam = false, portrait = false, companion
     if (busy.current) return; busy.current = true;
     const attempt = ++generation.current;
     const stale = () => generation.current !== attempt;
+    muteRef.current = false; setMuted(false);
     setStatus('connecting'); setError(''); setNotice(''); setPlaybackBlocked(false); setLatency(undefined);
     try {
       if (!navigator.mediaDevices?.getUserMedia || !window.AudioWorkletNode) throw Error('請使用支援麥克風與 AudioWorklet 的 HTTPS 瀏覽器。');
@@ -128,7 +139,7 @@ export default function DigitalHuman({ anam = false, portrait = false, companion
       if (stale()) { mic.getTracks().forEach(t => t.stop()); return; } media.current = mic;
       await resumed; if (stale()) return;
       await ac.audioWorklet.addModule('/pcm-worklet.js'); if (stale()) return;
-      const data = await request<Session>(`${api}/sessions`, { mode, role, character: characterId, history: normalizeHistory(getMemory(), 40, 16000) });
+      const data = await request<Session>(`${api}/sessions`, { mode, role, turnMode, character: characterId, history: normalizeHistory(getMemory(), 40, 16000) });
       if (stale()) { await request(`${api}/sessions/${data.id}/stop`, {}); return; }
       session.current = data.id;
       if (anam) {
@@ -161,7 +172,7 @@ export default function DigitalHuman({ anam = false, portrait = false, companion
       const source = ac.createMediaStreamSource(mic); const gain = ac.createGain(); gain.gain.value = 0;
       source.connect(capture); capture.connect(gain); gain.connect(ac.destination);
       let ready = false;
-      capture.port.onmessage = e => { if (ready && recording.current && !muteRef.current && ws.readyState === WebSocket.OPEN && ws.bufferedAmount < 24000) ws.send(e.data as ArrayBuffer); };
+      capture.port.onmessage = e => { if (ready && (turnMode === 'automatic' || recording.current) && !muteRef.current && ws.readyState === WebSocket.OPEN && ws.bufferedAmount < 24000) ws.send(e.data as ArrayBuffer); };
       ws.onmessage = event => {
         if (stale()) return;
         try {
@@ -173,6 +184,14 @@ export default function DigitalHuman({ anam = false, portrait = false, companion
           if (e.type === 'anam.audio.end') anamAudio.current?.endSequence();
           if (e.type === 'anam.interrupt') { setSpeaking(false); anamClient.current?.interruptPersona(); anamAudio.current?.endSequence(); }
           if (e.type === 'bridge.ready') { ready = true; setStatus('connected'); }
+          if ((e.type === 'text.accepted' || e.type === 'turn.text_blocked') && e.client_id === pendingText.current?.id) {
+            const pending = pendingText.current; pendingText.current = undefined; setTextSending(false);
+            if (pending && e.type === 'text.accepted') {
+              setError('');
+              setEntries(prev => [...prev, { id: pending.id, role: 'user', text: pending.text, time: '' }]);
+              setInput(value => value === pending.text ? '' : value);
+            } else if (e.type === 'turn.text_blocked') setError('語音回合尚在處理，請稍後再傳送文字。');
+          }
           if (e.type === 'turn.empty') setError('沒有收到足夠音訊，請再按「開始說話」。');
           if (e.type === 'bridge.error') { void stop(); setError(e.message); }
           if (e.type === 'avatar.speaking') { if (!portrait) setSpeaking(e.value); if (typeof e.responseLatencyMs === 'number') setLatency(e.responseLatencyMs); }
@@ -184,7 +203,8 @@ export default function DigitalHuman({ anam = false, portrait = false, companion
               return old ? prev.map(x => x.id === id ? next : x) : [...prev, next];
             });
           }
-          if (e.type === 'input_audio_buffer.speech_started') setSpeaking(false);
+          if (e.type === 'input_audio_buffer.speech_started') { setSpeaking(false); if (turnMode === 'automatic' && !muteRef.current) setRecordingNow(true); }
+          if (e.type === 'input_audio_buffer.speech_stopped' && turnMode === 'automatic') setRecordingNow(false);
         } catch { void stop(); setError('影像音訊傳送失敗，請重新連線。'); }
       };
       ws.onerror = () => { if (!stale()) { void stop(); setError('語音連線失敗，請重新連線。'); } };
@@ -211,11 +231,19 @@ export default function DigitalHuman({ anam = false, portrait = false, companion
       }, 150);
     }
   }
+  function toggleMute() {
+    const value = !muteRef.current; muteRef.current = value; setMuted(value);
+    if (turnMode === 'automatic') {
+      setRecordingNow(false);
+      if (socket.current?.readyState === WebSocket.OPEN) socket.current.send(JSON.stringify({ type: 'input.mute', muted: value }));
+    }
+  }
   function text() {
     if (recording.current) { setError('請先按「我說完了」送出語音，再傳文字。'); return; }
-    if (!input.trim() || socket.current?.readyState !== WebSocket.OPEN) return;
-    socket.current.send(JSON.stringify({ type: 'text', text: input }));
-    setEntries(prev => [...prev, { id: crypto.randomUUID(), role: 'user', text: input, time: '' }]); setInput('');
+    if (turnMode === 'automatic' && recordingNow) { setError('正在收音，請先停頓或靜音，再傳送文字。'); return; }
+    if (pendingText.current || !input.trim() || socket.current?.readyState !== WebSocket.OPEN) return;
+    const pending = { id: crypto.randomUUID(), text: input }; pendingText.current = pending; setTextSending(true);
+    socket.current.send(JSON.stringify({ type: 'text', client_id: pending.id, text: pending.text }));
   }
   const active = status !== 'idle';
   return <div className={`dh-app${keyboardOpen ? ' dh-keyboard-open' : ''}`}>
@@ -229,17 +257,18 @@ export default function DigitalHuman({ anam = false, portrait = false, companion
     {anam && <><CharacterPicker selected={characterId} onSelect={id => { void stop().then(() => selectCharacter(id)); }}/>{config && !config.characters?.includes(characterId) && <p className="dh-notice">此造型尚未連結 Anam Avatar ID。請在伺服器設定 ANAM_AVATAR_MAP 後即可使用。</p>}</>}
     <div className="dh-size-controls" role="group" aria-label="人像大小"><span>視窗大小 · 完整上半身</span>{([['small', '小'], ['medium', '中'], ['large', '大']] as const).map(([size, label]) => <button key={size} type="button" aria-pressed={avatarSize === size} onClick={() => changeAvatarSize(size)}>{label}</button>)}</div>
     <main className={`dh-layout dh-size-${avatarSize}`}><section className="dh-stage" aria-label={portrait ? "動畫造型" : "數位人影片"}>
-      <div className="dh-status" role="status"><i className={active ? 'on' : ''}/>{status === 'connected' ? speaking ? anam ? 'Luna 語音回覆中' : 'Luna 正在說話' : recordingNow ? '收音中 · 說完請按按鈕' : '已連線 · 請按開始說話' : status === 'connecting' ? '連線中' : status === 'reconnecting' ? '重新連線中' : '尚未連線'}</div>
+      <div className="dh-status" role="status"><i className={active ? 'on' : ''}/>{status === 'connected' ? speaking ? anam ? 'Luna 語音回覆中' : 'Luna 正在說話' : turnMode === 'automatic' ? muted ? '麥克風已靜音' : recordingNow ? '正在聽你說話' : '自然對話 · 可以直接說話' : recordingNow ? '收音中 · 說完請按按鈕' : '已連線 · 請按開始說話' : status === 'connecting' ? '連線中' : status === 'reconnecting' ? '重新連線中' : '尚未連線'}</div>
       <div className="dh-video-frame" style={companion ? {aspectRatio:'912 / 992'} : undefined}>{portrait && (companion ? <CompanionVideo paused={motionPaused} getLevel={()=>pcmPlayback.current?.mouthLevel() ?? 0}/> : <AnimatedPortrait key={portraitId} id={portraitId} speaking={speaking} paused={motionPaused}/>)}<video hidden={portrait} id="luna-avatar-video" ref={video} autoPlay playsInline muted={!anam} onLoadedMetadata={() => { void video.current?.play().catch(() => setPlaybackBlocked(true)); }} onPlaying={() => { setVideoReady(true); setPlaybackBlocked(false); }} />
       {!portrait && !videoReady && <div className="dh-placeholder"><span className="dh-orb">L</span><h1>今天，讓我陪你。</h1><p>{active ? '正在建立即時影像連線…' : "開始對話，和 Luna 分享你的今天。"}</p></div>}{playbackBlocked && <button className="dh-play-overlay" onClick={enablePlayback}>點一下啟用影音</button>}</div>
       <div className="dh-caption">{companion ? "本地重用動作 · 音量驅動嘴巴開合（非逐字對嘴）" : portrait ? "角色逐格動畫 · 無語音對嘴" : anam ? "Luna · 每次對話最多 3 分鐘" : config?.sandbox ? 'SANDBOX · Wayne 測試角色 · 約 60 秒' : 'LUNA · AI 數位人'}{latency !== undefined && <small>伺服器語音結束 → avatar 開口事件：{latency} ms（非端到端量測）</small>}</div>
-    <footer className="dh-controls"><button className="dh-primary" disabled={status !== 'connected' || finishing} aria-pressed={recordingNow} onClick={() => { void toggleTurn(); }}>{finishing ? '送出中…' : recordingNow ? '我說完了' : '開始說話'}</button><button className="dh-primary" onClick={() => { if (active) void stop(); else void start(); }} disabled={!active && (!config?.configured || (anam && !config?.characters?.includes(characterId)))}>{active ? '結束對話' : '開始對話'}</button><button aria-pressed={muted} onClick={() => { muteRef.current = !muted; setMuted(!muted); }} disabled={!active}>{muted ? '開啟麥克風' : '靜音'}</button><button disabled={status !== 'connected'} onClick={() => socket.current?.send(JSON.stringify({ type: 'interrupt' }))}>打斷 Luna</button><button aria-pressed={subtitles} onClick={() => setSubtitles(!subtitles)}>逐字稿 {subtitles ? '開' : '關'}</button><button disabled={!active} onClick={enablePlayback}>啟用播放</button></footer>
-    <p className="dh-footnote">按「開始說話」收音，中途可停頓；按「我說完了」才會回答。</p>
+    <footer className="dh-controls">{turnMode === 'manual' && <button className="dh-primary" disabled={status !== 'connected' || finishing} aria-pressed={recordingNow} onClick={() => { void toggleTurn(); }}>{finishing ? '送出中…' : recordingNow ? '我說完了' : '開始說話'}</button>}<button className="dh-primary" onClick={() => { if (active) void stop(); else void start(); }} disabled={!active && (!config?.configured || (anam && !config?.characters?.includes(characterId)))}>{active ? '結束對話' : '開始對話'}</button><button aria-pressed={muted} onClick={toggleMute} disabled={!active}>{muted ? '開啟麥克風' : '靜音'}</button><button disabled={status !== 'connected'} onClick={() => socket.current?.send(JSON.stringify({ type: 'interrupt' }))}>打斷 Luna</button><button aria-pressed={subtitles} onClick={() => setSubtitles(!subtitles)}>逐字稿 {subtitles ? '開' : '關'}</button><button disabled={!active} onClick={enablePlayback}>啟用播放</button></footer>
+    <p className="dh-footnote">{turnMode === 'automatic' ? '開始對話後持續收音；停頓後自動回覆，直接開口可打斷。按靜音暫停收音，按結束對話關閉麥克風。' : '按「開始說話」收音，中途可停頓；按「我說完了」才會回答。'}</p>
     </section><aside className="dh-panel">
       <div className="dh-panel-head"><p className="dh-eyebrow">YOUR CONVERSATION</p><h2>與 Luna 對話</h2><label>對話模式<select value={mode} disabled={active} onChange={e => setMode(e.target.value as Mode)}>{Object.entries(modes).map(([key, title]) => <option key={key} value={key}>{title}</option>)}</select></label>
+      <label>說話方式<select aria-label="說話方式" value={turnMode} disabled={active} onChange={e => changeTurnMode(e.target.value as TurnMode)}><option value="manual">按鈕控制（我說完才回答）</option><option value="automatic">自然對話（停頓後自動回覆）</option></select><small>{active ? '結束對話後可切換說話方式。' : '自然對話會持續收音；使用耳機可減少回音誤觸。'}</small></label>
       {mode === 'business' && <label>模擬客戶角色<select value={role} disabled={active} onChange={e => setRole(e.target.value)}>{config?.roles.map(r => <option key={r}>{r}</option>)}</select><small>虛構演練，不代表真實客戶情報。</small></label>}
       </div><div className="dh-messages" ref={messages} onScroll={e => { const el = e.currentTarget; followMessages.current = el.scrollHeight - el.clientHeight - el.scrollTop < 80; }} aria-live="polite">{entries.length === 0 && <p className="dh-empty">支援繁體中文、한국어、English。<br/>對話記憶保存在此瀏覽器。</p>}{subtitles && entries.map(e => <article key={e.id} className={e.role}><b>{e.role === 'user' ? '你' : 'Luna'}</b><p>{e.text}</p></article>)}</div>
-      <form onSubmit={e => { e.preventDefault(); text(); }}><input aria-label="文字訊息" maxLength={4000} enterKeyHint="send" autoComplete="off" value={input} onChange={e => setInput(e.target.value)} placeholder="想跟我說什麼…" disabled={status !== 'connected'}/><button disabled={status !== 'connected' || !input.trim()}>傳送</button></form>
+      <form onSubmit={e => { e.preventDefault(); text(); }}><input aria-label="文字訊息" maxLength={4000} enterKeyHint="send" autoComplete="off" value={input} onChange={e => setInput(e.target.value)} placeholder="想跟我說什麼…" disabled={status !== 'connected'}/><button disabled={status !== 'connected' || textSending || (turnMode === 'automatic' && recordingNow) || !input.trim()}>{textSending ? '傳送中…' : '傳送'}</button></form>
     </aside></main>
     {!config?.configured && config && <p className="dh-notice">即時人像尚未完成連線設定。{anam && "請在 Render 設定 ANAM_API_KEY，並將 Eric's agent 的 Avatar ID 填入 ANAM_AVATAR_ID。"}</p>}
     {notice && <p className="dh-notice" role="status">{notice}</p>}

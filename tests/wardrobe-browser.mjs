@@ -8,7 +8,18 @@ try {
  await page.getByLabel('帳號').fill('luna');await page.getByLabel('密碼').fill('local-ui-test');
  await Promise.all([page.waitForURL('http://localhost:18788/'),page.getByRole('button',{name:'登入',exact:true}).click()]);
  assert.ok((await context.cookies()).some(cookie=>cookie.name==='luna_session'&&cookie.httpOnly));
- await page.goto('http://localhost:18788/portraits');await page.getByText('20 款動畫造型 · 已選',{exact:false}).click();
+ await page.goto('http://localhost:18788/portraits');
+ const turnMode=page.getByLabel('說話方式',{exact:true});
+ assert.equal(await turnMode.inputValue(),'manual');
+ assert.equal(await page.getByRole('button',{name:'開始說話',exact:true}).count(),1);
+ await turnMode.selectOption('automatic');
+ assert.equal(await page.getByRole('button',{name:'開始說話',exact:true}).count(),0);
+ assert.equal(await page.getByRole('button',{name:'開始對話',exact:true}).count(),1);
+ await page.reload();assert.equal(await turnMode.inputValue(),'automatic');
+ assert.equal(await page.getByRole('button',{name:'開始說話',exact:true}).count(),0);
+ await turnMode.selectOption('manual');
+ assert.equal(await page.getByRole('button',{name:'開始說話',exact:true}).count(),1);
+ await page.getByText('20 款動畫造型 · 已選',{exact:false}).click();
  const buttons=page.locator('.wardrobe-grid button');assert.equal(await buttons.count(),20);
  const views=new Set();
  for(let i=0;i<20;i++){await buttons.nth(i).click();const main=page.locator('.dh-video-frame>.wardrobe-portrait');await page.waitForFunction(()=>document.querySelector('.wardrobe-motion')?.getAttribute('data-loaded')==='true');assert.ok((await main.getAttribute('aria-label')).startsWith(await buttons.nth(i).getAttribute('aria-label')));views.add((await main.locator('image').getAttribute('href'))+await main.getAttribute('viewBox'));}
@@ -33,5 +44,5 @@ try {
  await page.screenshot({path:'artifacts/wardrobe-mobile.png',fullPage:true});
  await page.getByRole('link',{name:'Anam 動態人像'}).click();await page.locator('#luna-avatar-video').waitFor();assert.equal(await page.locator('.wardrobe-picker').count(),0);
  await page.getByLabel('對話模式').selectOption('business');assert.equal(await page.getByLabel('模擬客戶角色').locator('option').count(),7);
- assert.deepEqual(errors,[]);console.log('PASS: 20 unique animation sheets, frame changes, pause/reduced-motion, persistence, desktop/mobile layout, Anam coexistence and seven business roles');
+ assert.deepEqual(errors,[]);console.log('PASS: 20 unique animation sheets, frame changes, pause/reduced-motion, persistence, desktop/mobile layout, Anam coexistence, seven business roles and persistent manual/automatic turn selection');
 } finally {await browser.close();}

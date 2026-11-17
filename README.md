@@ -89,12 +89,38 @@ Validation: `npm run build && npm test`. Optional browser checks require Chromiu
 start the built server on port 18788 with `APP_PASSWORD=local-ui-test`, then run
 `node tests/characters-browser.mjs` and `node tests/browser-check.mjs`.
 
-## Manual speech turns
+## Selectable speech turns
 
-Both voice interfaces disable automatic turn detection. Connect, press **開始說話**,
-speak with pauses as needed, then press **我說完了** to commit audio and request a
-reply. Starting a new turn interrupts the previous response. Appearance changes do
-not end the turn. Existing provider session duration limits still apply.
+The current Anam, portrait and companion interfaces offer **說話方式** before
+connecting. The preference is kept in this browser (`luna.turn-mode.v1`). Existing
+users default to **按鈕控制**: press 開始說話, pause as needed, then 我說完了.
+**自然對話** streams microphone audio after the explicit 開始對話 action; provider
+VAD detects speech and pauses, commits the turn and requests one reply. Speaking
+again interrupts queued playback and pending xAI speech synthesis. There is no
+per-utterance button in this mode. 靜音 suspends microphone sending and discards
+uncommitted audio; 結束對話 stops the microphone and session. Switching turn mode
+requires ending the current session. Headphones reduce echo-triggered interruptions.
+
+OpenAI uses nested `audio.input.turn_detection` server VAD with 800 ms silence,
+300 ms prefix padding and automatic response/interruption. xAI's documented
+`turn_detection: {type: 'server_vad'}` uses provider timing; OpenAI-specific tuning
+fields are not sent to xAI. The bridge does not manually commit or create a response
+for VAD events, and does not double-cancel the upstream response on speech start.
+Manual text messages still explicitly request a response. During an active VAD
+utterance or its pending automatic reply, typed sends are rejected nonfatally; the
+draft remains in the input and history is updated only after server acceptance. Existing session/idle
+limits remain; continuous silence does not keep a session alive indefinitely.
+
+Provider contracts checked against:
+- https://developers.openai.com/api/docs/guides/realtime-vad
+- https://developers.openai.com/api/reference/resources/realtime
+- https://docs.x.ai/voice-realtime.ws.json
+- https://docs.x.ai/developers/rest-api-reference/inference/voice
+
+Mocked bridge tests cover automatic input, transcript retention, interruption during
+both pending and playing TTS, mute/resume, stale responses and close cleanup for
+OpenAI split speech and legacy xAI. They do not replace real microphone/VAD timing,
+echo, provider access and physical mobile-device acceptance.
 
 
 ## Anam 人像串接（/anam）

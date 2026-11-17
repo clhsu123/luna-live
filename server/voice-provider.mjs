@@ -10,15 +10,17 @@ export function voiceProvider(env = process.env) {
   return {
     name, apiKey, model, configured: Boolean(apiKey && !apiKey.includes('REPLACE_ME')),
     url: `wss://${xai ? 'api.x.ai' : 'api.openai.com'}/v1/realtime?model=${encodeURIComponent(model)}`,
-    session(instructions) {
+    session(instructions, turnMode = 'manual') {
+      if (!['manual', 'automatic'].includes(turnMode)) throw Error('invalid_turn_mode');
+      const automatic = turnMode === 'automatic';
       const format = { type: 'audio/pcm', rate: 24000 };
       return xai ? {
-        instructions, voice: env.XAI_VOICE || 'eve', turn_detection: { type: null },
+        instructions, voice: env.XAI_VOICE || 'eve', turn_detection: { type: automatic ? 'server_vad' : null },
         audio: { input: { format }, output: { format } },
       } : {
         type: 'realtime', instructions,
         output_modalities: env.CHAT_OUTPUT === 'xai-tts' ? ['text'] : ['audio'],
-        audio: { input: { format, transcription: { model: 'gpt-4o-mini-transcribe' }, turn_detection: null }, output: { format, voice: 'marin' } },
+        audio: { input: { format, transcription: { model: 'gpt-4o-mini-transcribe' }, turn_detection: automatic ? { type: 'server_vad', threshold: 0.5, prefix_padding_ms: 300, silence_duration_ms: 800, create_response: true, interrupt_response: true } : null }, output: { format, voice: 'marin' } },
       };
     },
     xaiTts: name === 'openai' && env.CHAT_OUTPUT === 'xai-tts',

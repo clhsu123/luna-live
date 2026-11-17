@@ -41,7 +41,9 @@ for (const portrait of [false, true]) test((portrait ? 'portrait: ' : 'Anam: ') 
   response('pending','pending');await until(()=>pending);
   ws.send(JSON.stringify({type:'interrupt'}));await until(()=>calls[1].signal.aborted);
   pending.reject(Error('late provider failure'));await pause(30);assert.equal(events.some(e=>e.type==='bridge.error'),false);
-  ws.send(JSON.stringify({type:'text',text:'second turn'}));await until(()=>sent.some(e=>e.item?.content?.[0]?.text==='second turn'));
+  ws.send(JSON.stringify({type:'text',client_id:'manual-typed',text:'second turn'}));await until(()=>sent.some(e=>e.item?.content?.[0]?.text==='second turn'));
+  await until(()=>events.some(e=>e.type==='text.accepted'&&e.client_id==='manual-typed'));
+  assert.equal(events.some(e=>e.type==='turn.text_blocked'),false);
   response('r2','second answer');await until(()=>events.filter(e=>e.type===audioPrefix+'.audio.end').length===2);
   assert.deepEqual(calls.map(c=>c.text),['你好','pending','second answer']);
   // A stale completion must not speak the latest response's buffer.

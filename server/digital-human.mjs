@@ -39,7 +39,8 @@ export function installDigitalHuman(app, server, { anam = false, portrait = fals
     res.json({ characters: anam ? Object.keys(anamAvatars()) : [], aiProvider: voice.name, speechProvider: voice.xaiTts ? 'xai-tts' : voice.name, configured: Boolean(origin && voice.configured && speechConfigured && (portrait || (anam ? process.env.ANAM_API_KEY && Object.keys(anamAvatars()).length : process.env.LIVEAVATAR_API_KEY && (sandbox || process.env.LIVEAVATAR_AVATAR_ID)))), sandbox, paidEnabled: process.env.ALLOW_PAID_AVATAR === 'true', gestures: [], roles });
   });
   app.post(`${prefix}/sessions`, csrf, json, async (req, res) => {
-    const { mode, role, character, history = [] } = req.body || {};
+    const { mode, role, character, history = [], turnMode = 'manual' } = req.body || {};
+    if (!['manual', 'automatic'].includes(turnMode)) return res.status(400).json({ error: 'invalid_turn_mode' });
     if (!Array.isArray(history) || history.length > 100 || history.some(e => !e || !['user', 'assistant'].includes(e.role) || typeof e.text !== 'string' || e.text.length > 4000)) return res.status(400).json({ error: 'invalid_history' });
     if (!Object.hasOwn(instructions, mode) || (role !== undefined && !roles.includes(role))) return res.status(400).json({ error: 'invalid_mode_or_role' });
     if (!voice.configured) return res.status(503).json({ error: `${voice.name}_not_configured` });
@@ -50,7 +51,7 @@ export function installDigitalHuman(app, server, { anam = false, portrait = fals
       const ticket = randomUUID();
       const timer = setTimeout(() => { tickets.delete(ticket); void sessions.stop(user, session.id).catch(() => {}); }, 30_000);
       timer.unref();
-      tickets.set(ticket, { user, id: session.id, mode, role, timer, history: normalizeHistory(history, 40, 16000) });
+      tickets.set(ticket, { user, id: session.id, mode, role, turnMode, timer, history: normalizeHistory(history, 40, 16000) });
       res.json({ ...session, ticket, sandbox });
     } catch (error) { safeError(res, error); }
   });
@@ -72,6 +73,8 @@ export function installDigitalHuman(app, server, { anam = false, portrait = fals
     wss.handleUpgrade(req, socket, head, client => connect(client, ticket));
   });
   function connect(client, ticket) {
+    const automatic = ticket.turnMode === 'automatic';
+    let microphoneMuted = false; let awaitingVadResponse = false; let vadSpeechItem;
     let record;
     try { record = sessions.get(ticket.user, ticket.id); } catch { client.close(1008); return; }
     let ai; let avatar; let done = false; let ready = false; let responseId; let itemId; let utterance; let speakingAt; let speechStoppedAt; let generatedMs = 0; let active = false; let listening = false; let lastActivity = Date.now(); let inputBytes = 0; let responseText = ''; let speechGeneration = 0; let speechController;
@@ -145,14 +148,28 @@ export function installDigitalHuman(app, server, { anam = false, portrait = fals
         if (e.type === 'session.state_updated' && e.state === 'connected' && !ai) {
           ai = aiSocketFactory(voice.url, { headers: { Authorization: `Bearer ${voice.apiKey}` } });
           ai.on('error', error => fail('chat_connect', error)); ai.on('close', () => { if (!done) fail('chat_closed'); });
-          ai.on('open', () => send(ai, { type: 'session.update', session: voice.session(`${instructions[ticket.mode]} ${ticket.mode === 'business' ? `Customer role: ${ticket.role || roles[0]}.` : ''}`) }));
+          ai.on('open', () => send(ai, { type: 'session.update', session: voice.session(`${instructions[ticket.mode]} ${ticket.mode === 'business' ? `Customer role: ${ticket.role || roles[0]}.` : ''}`, ticket.turnMode) }));
           ai.on('message', raw => {
             try {
               const e = normalizeVoiceEvent(JSON.parse(raw.toString()));
               if (e.type === 'session.updated' && !ready) { for (const event of replayEvents(ticket.history)) send(ai, event); ready = true; clearTimeout(startup); tell({ type: 'bridge.ready' }); }
-              if (e.type === 'input_audio_buffer.speech_started') { listening = true; lastActivity = Date.now(); interrupt(); }
-              if (e.type === 'input_audio_buffer.speech_stopped') { listening = false; speechStoppedAt = Date.now(); lastActivity = Date.now(); }
-              if (e.type === 'response.created') { if (e.response.id === responseId) return; interrupt(false); responseId = e.response.id; responseText = ''; active = true; generatedMs = 0; itemId = undefined; utterance = undefined; speakingAt = undefined; }
+              if (e.type === 'input_audio_buffer.speech_started') {
+                if (automatic && microphoneMuted) return;
+                listening = true; if (automatic) vadSpeechItem = e.item_id; lastActivity = Date.now();
+                // Server VAD cancels its own response. Only clear our downstream
+                // TTS/browser/avatar queues; a second response.cancel can race it.
+                interrupt(!automatic);
+              }
+              if (e.type === 'input_audio_buffer.speech_stopped') {
+                if (automatic) {
+                  // A cleared/muted utterance no longer owns a turn. Ignore its
+                  // delayed stop instead of waiting forever for a discarded reply.
+                  if (microphoneMuted || !listening || typeof e.item_id !== 'string' || e.item_id !== vadSpeechItem) return;
+                  awaitingVadResponse = true; vadSpeechItem = undefined;
+                }
+                listening = false; speechStoppedAt = Date.now(); lastActivity = Date.now();
+              }
+              if (e.type === 'response.created') { awaitingVadResponse = false; if (e.response.id === responseId) return; interrupt(false); responseId = e.response.id; responseText = ''; active = true; generatedMs = 0; itemId = undefined; utterance = undefined; speakingAt = undefined; }
               if (voice.xaiTts && ['response.text.delta', 'response.output_text.delta'].includes(e.type) && e.response_id === responseId) {
                 responseText += e.delta || '';
                 tell({ ...e, type: 'response.output_audio_transcript.delta' });
@@ -163,7 +180,7 @@ export function installDigitalHuman(app, server, { anam = false, portrait = fals
                 batch.append(e.delta);
               }
               if (!voice.xaiTts && e.type === 'response.output_audio.done' && e.response_id === responseId && utterance) { batch.flush(); send(avatar, { type: 'agent.speak_end', event_id: utterance }); }
-              if (e.type === 'response.done' && (!voice.xaiTts || (active && e.response?.id === responseId))) {
+              if (e.type === 'response.done' && active && e.response?.id === responseId) {
                 active = false;
                 if (e.response?.status === 'failed') { fail('chat_response', e.response?.status_details?.error); return; }
                 if (voice.xaiTts && e.response?.status === 'completed' && responseText.trim()) {
@@ -171,7 +188,7 @@ export function installDigitalHuman(app, server, { anam = false, portrait = fals
                   void speakWithXai(responseText.trim()).catch(error => fail('xai_tts', error));
                 }
               }
-              if (['input_audio_buffer.speech_started', 'input_audio_buffer.speech_stopped', 'conversation.item.input_audio_transcription.completed', 'response.output_audio_transcript.delta', 'response.output_audio_transcript.done', 'response.created'].includes(e.type) && (!voice.xaiTts || !e.type.startsWith('response.output_audio_transcript.'))) tell(e);
+              if (['input_audio_buffer.speech_started', 'input_audio_buffer.speech_stopped', 'conversation.item.input_audio_transcription.completed', 'response.output_audio_transcript.delta', 'response.output_audio_transcript.done', 'response.created'].includes(e.type) && (!e.type.startsWith('response.output_audio_transcript.') || (!voice.xaiTts && e.response_id === responseId))) tell(e);
               if (e.type === 'error') fail('chat_event', e.error);
             } catch { fail(); }
           });
@@ -188,18 +205,30 @@ export function installDigitalHuman(app, server, { anam = false, portrait = fals
     client.on('message', (raw, binary) => {
       try {
         if (!ready) return;
-        if (binary) { if (!listening) return; inputBytes += raw.length; if (raw.length > 12000 || raw.length % 2) throw Error(); send(ai, { type: 'input_audio_buffer.append', audio: raw.toString('base64') }); return; }
+        if (binary) { if (microphoneMuted || (!automatic && !listening)) return; if (!automatic) inputBytes += raw.length; if (raw.length > 12000 || raw.length % 2) throw Error(); send(ai, { type: 'input_audio_buffer.append', audio: raw.toString('base64') }); return; }
         const e = JSON.parse(raw.toString());
         if (e.type === 'turn.start') {
+          if (automatic) return;
           interrupt(); send(ai, { type: 'input_audio_buffer.clear' }); inputBytes = 0; listening = true; lastActivity = Date.now();
         } else if (e.type === 'turn.end') {
+          if (automatic) return;
           if (!listening) return;
           listening = false; lastActivity = Date.now(); speechStoppedAt = Date.now();
           if (inputBytes < 4800) { send(ai, { type: 'input_audio_buffer.clear' }); tell({ type: 'turn.empty' }); return; }
           send(ai, { type: 'input_audio_buffer.commit' }); send(ai, { type: 'response.create' }); inputBytes = 0;
+        } else if (e.type === 'input.mute' && automatic && typeof e.muted === 'boolean') {
+          microphoneMuted = e.muted; listening = false; vadSpeechItem = undefined; inputBytes = 0;
+          send(ai, { type: 'input_audio_buffer.clear' });
+          lastActivity = Date.now();
         } else if (e.type === 'interrupt') interrupt();
         else if (e.type === 'text' && typeof e.text === 'string' && e.text.trim() && e.text.length <= 4000) {
+          const clientId = typeof e.client_id === 'string' && /^[a-zA-Z0-9_-]{1,64}$/.test(e.client_id) ? e.client_id : undefined;
+          if (automatic && (listening || awaitingVadResponse)) {
+            tell({ type: 'turn.text_blocked', client_id: clientId, message: '語音回合尚在處理，請稍後再傳送文字。' });
+            return;
+          }
           lastActivity = Date.now(); interrupt(); send(ai, { type: 'conversation.item.create', item: { type: 'message', role: 'user', content: [{ type: 'input_text', text: e.text }] } }); send(ai, { type: 'response.create' });
+          tell({ type: 'text.accepted', client_id: clientId });
         } else throw Error();
       } catch { fail(); }
     });
