@@ -14,7 +14,7 @@ try {
  for(let i=0;i<20;i++){await buttons.nth(i).click();const main=page.locator('.dh-video-frame>.wardrobe-portrait');await page.waitForFunction(()=>document.querySelector('.wardrobe-motion')?.getAttribute('data-loaded')==='true');assert.ok((await main.getAttribute('aria-label')).startsWith(await buttons.nth(i).getAttribute('aria-label')));views.add((await main.locator('image').getAttribute('href'))+await main.getAttribute('viewBox'));}
  assert.equal(views.size,20);
  await page.waitForFunction(()=>Number(document.querySelector('.wardrobe-motion')?.getAttribute('data-frame'))>0);
- await page.getByRole('button',{name:'暫停角色動畫'}).click();assert.equal(await page.locator('.wardrobe-motion').getAttribute('data-frame'),'0');
+ await page.getByRole('button',{name:'暫停角色動畫'}).click();await page.waitForFunction(()=>document.querySelector('.wardrobe-motion')?.getAttribute('data-frame')==='0');await page.waitForTimeout(200);assert.equal(await page.locator('.wardrobe-motion').getAttribute('data-frame'),'0');
  await page.getByRole('button',{name:'播放角色動畫'}).click();
  await page.emulateMedia({reducedMotion:'reduce'});await page.waitForFunction(()=>document.querySelector('.wardrobe-motion')?.getAttribute('data-frame')==='0');assert.equal(await page.locator('.wardrobe-motion').getAttribute('data-frame'),'0');
  await page.emulateMedia({reducedMotion:'no-preference'});
