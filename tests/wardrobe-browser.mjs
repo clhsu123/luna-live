@@ -2,8 +2,12 @@ import { chromium } from 'playwright';
 import assert from 'node:assert/strict';
 const browser=await chromium.launch({headless:true,...(process.env.CHROMIUM_PATH ? {executablePath:process.env.CHROMIUM_PATH} : {}),args:['--no-sandbox']});
 try {
- const context=await browser.newContext({httpCredentials:{username:'luna',password:'local-ui-test'},viewport:{width:1440,height:1000}});
+ const context=await browser.newContext({viewport:{width:1440,height:1000}});
  const page=await context.newPage();const errors=[];page.on('pageerror',e=>errors.push(e.message));
+ await page.goto('http://localhost:18788/login');
+ await page.getByLabel('帳號').fill('luna');await page.getByLabel('密碼').fill('local-ui-test');
+ await Promise.all([page.waitForURL('http://localhost:18788/'),page.getByRole('button',{name:'登入',exact:true}).click()]);
+ assert.ok((await context.cookies()).some(cookie=>cookie.name==='luna_session'&&cookie.httpOnly));
  await page.goto('http://localhost:18788/portraits');await page.getByText('20 款動畫造型 · 已選',{exact:false}).click();
  const buttons=page.locator('.wardrobe-grid button');assert.equal(await buttons.count(),20);
  const views=new Set();
