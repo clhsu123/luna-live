@@ -32,21 +32,22 @@ export class AnamProvider {
   async stop() {}
 }
 export class AnamRelay extends EventEmitter {
-  readyState = 1; bufferedAmount = 0; timer; current; milliseconds = 0;
+  readyState = 1; bufferedAmount = 0; timer; current; milliseconds = 0; startedAt = 0;
   constructor(tell) { super(); this.tell = tell; }
   send(raw) {
     const e = JSON.parse(raw);
     if (e.type === 'agent.speak') {
+      if (this.current !== e.event_id) { clearTimeout(this.timer); this.milliseconds = 0; this.startedAt = Date.now(); }
       this.current = e.event_id; this.milliseconds += Buffer.from(e.audio, 'base64').length / 48;
       this.tell({ type: 'anam.audio', audio: e.audio });
     } else if (e.type === 'agent.speak_end') {
       this.tell({ type: 'anam.audio.end' });
       const id = this.current; clearTimeout(this.timer);
       // Conservative estimate for idle cleanup, never reported as measured playback.
-      this.timer = setTimeout(() => { this.milliseconds = 0; this.emit('message', JSON.stringify({ type: 'agent.speak_ended', source_event_id: id })); }, this.milliseconds + 1500);
+      this.timer = setTimeout(() => { this.milliseconds = 0; this.emit('message', JSON.stringify({ type: 'agent.speak_ended', source_event_id: id })); }, Math.max(0, this.startedAt + this.milliseconds - Date.now()) + 1500);
       this.timer.unref?.();
     } else if (e.type === 'agent.interrupt') {
-      clearTimeout(this.timer); this.milliseconds = 0; this.tell({ type: 'anam.interrupt' });
+      clearTimeout(this.timer); this.current = undefined; this.milliseconds = 0; this.tell({ type: 'anam.interrupt' });
     }
   }
   close() { clearTimeout(this.timer); this.readyState = 3; }

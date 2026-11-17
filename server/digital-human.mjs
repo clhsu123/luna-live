@@ -82,12 +82,13 @@ export function installDigitalHuman(app, server, { anam = false, portrait = fals
     };
     const fail = () => { tell({ type: 'bridge.error', message: '連線中斷或供應商錯誤。請結束後重新連線。' }); cleanup(); };
     const batch = relay ? { append: audio => send(avatar, { type: 'agent.speak', event_id: utterance, audio }), clear() {}, flush() {} } : new AudioBatcher(audio => send(avatar, { type: 'agent.speak', event_id: utterance, audio }), { onError: fail });
-    const interrupt = () => {
-      speechGeneration++; speechController?.abort(); responseText = '';
+    const interrupt = (cancelResponse = true) => {
+      speechGeneration++; speechController?.abort(); speechController = undefined; responseText = '';
       batch.clear();
-      if (active) send(ai, { type: 'response.cancel' });
+      if (active && cancelResponse) send(ai, { type: 'response.cancel', response_id: responseId });
+      // Clear browser/provider queues even if the relay's estimate already ended.
+      if (relay || utterance) send(avatar, { type: 'agent.interrupt', event_id: randomUUID() });
       if (utterance) {
-        send(avatar, { type: 'agent.interrupt', event_id: randomUUID() });
         // Conservative elapsed playback estimate; provider has no sample-accurate playhead.
         if (itemId) send(ai, { type: 'conversation.item.truncate', item_id: itemId, content_index: 0, audio_end_ms: Math.min(generatedMs, speakingAt ? Math.max(0, Date.now() - speakingAt) : 0) });
       }
@@ -117,12 +118,12 @@ export function installDigitalHuman(app, server, { anam = false, portrait = fals
         await new Promise(resolve => setTimeout(resolve, frame.length / 48));
       }
       if (done || generation !== speechGeneration) return;
-      batch.flush(); send(avatar, { type: 'agent.speak_end', event_id: utterance });
+      batch.flush(); send(avatar, { type: 'agent.speak_end', event_id: utterance }); speechController = undefined;
     };
     const startup = setTimeout(fail, 25_000);
     const heartbeat = setInterval(() => {
       try {
-        if (ready && !active && !utterance && !listening && Date.now() - lastActivity >= 45_000) {
+        if (ready && !active && !utterance && !speechController && !listening && Date.now() - lastActivity >= 45_000) {
           tell({ type: 'bridge.error', message: '已閒置 45 秒，影像連線已自動結束以節省用量。可以隨時重新開始。' }); cleanup(); return;
         }
         if (ready) send(avatar, { type: 'session.keep_alive' });
@@ -145,7 +146,7 @@ export function installDigitalHuman(app, server, { anam = false, portrait = fals
               if (e.type === 'session.updated' && !ready) { for (const event of replayEvents(ticket.history)) send(ai, event); ready = true; clearTimeout(startup); tell({ type: 'bridge.ready' }); }
               if (e.type === 'input_audio_buffer.speech_started') { listening = true; lastActivity = Date.now(); interrupt(); }
               if (e.type === 'input_audio_buffer.speech_stopped') { listening = false; speechStoppedAt = Date.now(); lastActivity = Date.now(); }
-              if (e.type === 'response.created') { responseId = e.response.id; responseText = ''; active = true; generatedMs = 0; itemId = undefined; utterance = undefined; speakingAt = undefined; }
+              if (e.type === 'response.created') { if (e.response.id === responseId) return; interrupt(false); responseId = e.response.id; responseText = ''; active = true; generatedMs = 0; itemId = undefined; utterance = undefined; speakingAt = undefined; }
               if (voice.xaiTts && ['response.text.delta', 'response.output_text.delta'].includes(e.type) && e.response_id === responseId) {
                 responseText += e.delta || '';
                 tell({ ...e, type: 'response.output_audio_transcript.delta' });
@@ -172,7 +173,7 @@ export function installDigitalHuman(app, server, { anam = false, portrait = fals
         if (e.type === 'agent.speak_started' && e.source_event_id === utterance) {
           speakingAt = Date.now(); tell({ type: 'avatar.speaking', value: true, responseLatencyMs: speechStoppedAt ? Date.now() - speechStoppedAt : null });
         }
-        if (['agent.speak_ended', 'agent.speak_interrupted'].includes(e.type)) tell({ type: 'avatar.speaking', value: false });
+        if (['agent.speak_ended', 'agent.speak_interrupted'].includes(e.type) && e.source_event_id === utterance) tell({ type: 'avatar.speaking', value: false });
         if (e.type === 'agent.speak_ended' && e.source_event_id === utterance) { utterance = undefined; speakingAt = undefined; lastActivity = Date.now(); }
         if (e.type === 'error') fail();
       } catch { fail(); }

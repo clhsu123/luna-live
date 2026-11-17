@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Room, RoomEvent, Track } from 'livekit-client';
 import './digital.css';
 import './characters.css';
+import { PcmPlayback } from '../shared/pcm-playback.mjs';
 import { PortraitPicker, Portrait, usePortrait } from './Portraits';
 import { CharacterPicker, useCharacter } from './Characters';
 import { useSharedMemory, getMemory, memoryStorageFailed } from './sharedMemory';
@@ -22,17 +23,12 @@ export default function DigitalHuman({ anam = false, portrait = false }: { anam?
     try { localStorage.setItem('luna.avatar-size.v1', size); } catch { /* Still works for this visit. */ }
   }
   const [portraitId, selectPortrait] = usePortrait();
-  const pcmSources = useRef<AudioBufferSourceNode[]>([]);
-  const pcmTime = useRef(0);
-  function clearPcm() { for (const source of pcmSources.current) { try { source.stop(); } catch {} } pcmSources.current = []; pcmTime.current = 0; setSpeaking(false); }
+  const pcmPlayback = useRef<PcmPlayback | undefined>(undefined);
+  function clearPcm() { pcmPlayback.current?.clear(); }
   function playPcm(encoded: string) {
-    const ac = context.current; if (!ac) throw Error('Audio not ready');
-    const raw = atob(encoded); const bytes = Uint8Array.from(raw, c => c.charCodeAt(0));
-    const view = new DataView(bytes.buffer); const buffer = ac.createBuffer(1, bytes.length / 2, 24000);
-    const samples = buffer.getChannelData(0); for(let i=0;i<samples.length;i++) samples[i] = view.getInt16(i*2,true)/32768;
-    const source = ac.createBufferSource(); source.buffer = buffer; source.connect(ac.destination);
-    const start = Math.max(ac.currentTime + 0.02, pcmTime.current); pcmTime.current = start + buffer.duration;
-    pcmSources.current.push(source); source.onended = () => { pcmSources.current = pcmSources.current.filter(s => s !== source); source.disconnect(); if (!pcmSources.current.length) setSpeaking(false); }; source.start(start);
+    if (!context.current) throw Error('Audio not ready');
+    pcmPlayback.current ||= new PcmPlayback(context.current, setSpeaking);
+    pcmPlayback.current.append(encoded);
   }
   const anamClient = useRef<ReturnType<typeof createClient> | undefined>(undefined);
   const anamAudio = useRef<ReturnType<ReturnType<typeof createClient>['createAgentAudioInputStream']> | undefined>(undefined);
@@ -62,7 +58,7 @@ export default function DigitalHuman({ anam = false, portrait = false }: { anam?
     const value = await res.json(); if (!res.ok) throw Error(value.error || `Request failed: ${res.status}`); return value;
   }
   async function stop() {
-    clearPcm(); recording.current = false; setRecordingNow(false); setFinishing(false);
+    clearPcm(); pcmPlayback.current = undefined; recording.current = false; setRecordingNow(false); setFinishing(false);
     generation.current++; busy.current = false;
     const previousAnam = anamClient.current; anamClient.current = undefined; anamAudio.current = undefined;
     void previousAnam?.stopStreaming().catch(() => {}); socket.current?.close(); socket.current = undefined;
@@ -160,17 +156,17 @@ export default function DigitalHuman({ anam = false, portrait = false }: { anam?
         if (stale()) return;
         try {
           const e = JSON.parse(event.data);
-          if (e.type === 'portrait.audio') { setSpeaking(true); playPcm(e.audio); }
+          if (e.type === 'portrait.audio') { playPcm(e.audio); }
           if (e.type === 'portrait.interrupt') clearPcm();
-          if (e.type === 'portrait.audio.end') { /* Playback completion is tracked by AudioBufferSourceNode.onended. */ }
+          if (e.type === 'portrait.audio.end') pcmPlayback.current?.end();
           if (e.type === 'anam.audio') { setSpeaking(true); if (!anamAudio.current) throw Error('Anam audio not ready'); anamAudio.current.sendAudioChunk(e.audio); }
           if (e.type === 'anam.audio.end') anamAudio.current?.endSequence();
-          if (e.type === 'anam.interrupt') { anamClient.current?.interruptPersona(); anamAudio.current?.endSequence(); }
+          if (e.type === 'anam.interrupt') { setSpeaking(false); anamClient.current?.interruptPersona(); anamAudio.current?.endSequence(); }
           if (e.type === 'bridge.ready') { ready = true; setStatus('connected'); }
           if (e.type === 'turn.empty') setError('沒有收到足夠音訊，請再按「開始說話」。');
           if (e.type === 'bridge.error') { void stop(); setError(e.message); }
-          if (e.type === 'avatar.speaking') { if (!portrait || e.value) setSpeaking(e.value); if (typeof e.responseLatencyMs === 'number') setLatency(e.responseLatencyMs); }
-          if (e.type === 'conversation.item.input_audio_transcription.completed') setEntries(prev => [...prev, { id: e.item_id, role: 'user', text: e.transcript, time: '' }]);
+          if (e.type === 'avatar.speaking') { if (!portrait) setSpeaking(e.value); if (typeof e.responseLatencyMs === 'number') setLatency(e.responseLatencyMs); }
+          if (e.type === 'conversation.item.input_audio_transcription.completed') setEntries(prev => [...prev.filter(entry => entry.id !== e.item_id), { id: e.item_id, role: 'user', text: e.transcript, time: '' }]);
           if (e.type === 'response.output_audio_transcript.delta' || e.type === 'response.output_audio_transcript.done') {
             setEntries(prev => {
               const id = e.response_id; const old = prev.find(x => x.id === id);

@@ -99,7 +99,7 @@ not end the turn. Existing provider session duration limits still apply.
 
 ## Anam 人像串接（/anam）
 
-Anam receives 24 kHz mono PCM16 audio and returns synchronized video. The AI and speech providers are selected by the environment configuration below. The original LiveAvatar page at /digital remains available.
+Anam receives 24 kHz mono PCM16 audio and returns synchronized video. The AI and speech providers are selected by the environment configuration below. The current / and /digital entry points also open Anam. Legacy LiveAvatar backend code is retained but is not a newly enabled product mode.
 
 在 Render 的既有服務 Environment 新增（不要把 key 放進 GitHub 或前端）：
 
@@ -179,3 +179,10 @@ It verifies all 20 unique selections, persistence, mobile overflow, Anam
 navigation and business roles. Actual microphone input, xAI speech, Anam video
 and lip sync still require a staging call with valid server-side credentials.
 No ChatGPT private-memory import or writeback is implemented by this change.
+
+## PR #4 pre-production review
+
+See [PR-4-VALIDATION.md](PR-4-VALIDATION.md) for verified checks, provider contracts,
+remaining release blockers, required environment variables and rollback steps.
+The 20 current portrait views are still static: the requested animated-character
+experience is not complete. Do not describe image selection as completed animation.
