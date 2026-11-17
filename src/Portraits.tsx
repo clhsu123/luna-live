@@ -21,6 +21,16 @@ export function PortraitPicker({selected,onSelect}:{selected:number;onSelect:(id
 export function AnimatedPortrait({id,speaking,paused}: {id:number;speaking:boolean;paused:boolean}) {
  const [frame,setFrame]=useState(0), [loaded,setLoaded]=useState(false), [failed,setFailed]=useState(false);
  useEffect(()=>{
+  // HTMLImageElement reliably reports cached and fresh loads; SVG image load
+  // events are not consistently forwarded by React's event delegation.
+  let active=true;
+  const image=new Image();
+  image.onload=()=>{if(active)setLoaded(true);};
+  image.onerror=()=>{if(active)setFailed(true);};
+  image.src=motionSource(id);
+  return ()=>{active=false;image.onload=null;image.onerror=null;};
+ },[id]);
+ useEffect(()=>{
   const preference=matchMedia('(prefers-reduced-motion: reduce)');
   let timer: ReturnType<typeof setInterval> | undefined;
   const update=()=>{
@@ -34,7 +44,7 @@ export function AnimatedPortrait({id,speaking,paused}: {id:number;speaking:boole
  },[loaded,failed,paused,speaking]);
  if(failed)return <><Portrait id={id}/><span className="motion-load-error" role="status">動畫載入失敗，暫時顯示原圖。</span></>;
  return <svg className="wardrobe-portrait wardrobe-motion" viewBox="0 0 384 512" role="img" aria-label={`${portraits[id-1].label} · 逐格動畫`} data-frame={frame} data-loaded={loaded} preserveAspectRatio="xMidYMid meet">
-  <image href={motionSource(id)} width="1536" height="1024" x={-(frame%4)*384} y={-Math.floor(frame/4)*512} onLoad={()=>setLoaded(true)} onError={()=>setFailed(true)}/>
+  <image href={motionSource(id)} width="1536" height="1024" x={-(frame%4)*384} y={-Math.floor(frame/4)*512}/>
   {!loaded&&<text x="192" y="256" textAnchor="middle" fill="white">載入角色動畫…</text>}
  </svg>;
 }
