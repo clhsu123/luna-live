@@ -50,3 +50,25 @@ test('relay completion accounts for streamed time and cancels previous sequence 
  send('agent.speak','two');send('agent.speak_end','two');send('agent.interrupt');
  t.mock.timers.tick(5000);assert.equal(events.length,1);relay.close();
 });
+
+
+test('Anam rejection diagnostics distinguish credentials, access, configuration and provider failures without leaking bodies', async () => {
+  const cases = [[400,'anam_configuration_rejected'],[401,'anam_authentication_failed'],[402,'anam_billing_required'],[403,'anam_access_denied'],[404,'anam_resource_not_found'],[422,'anam_configuration_rejected'],[429,'anam_quota_or_rate_limit'],[500,'anam_provider_error'],[503,'anam_provider_error'],[418,'anam_session_failed']];
+  for (const [status, code] of cases) {
+    const logs = [];
+    const provider = new AnamProvider({
+      env: { ANAM_API_KEY: 'never-print-this-key', ANAM_AVATAR_ID: 'private-avatar' },
+      log: entry => logs.push(entry),
+      fetchImpl: async () => ({ ok: false, status,
+        json: () => { throw Error('must not read upstream body'); },
+        text: () => { throw Error('must not read upstream body'); },
+      }),
+    });
+    await assert.rejects(provider.create('luna-office'), error => {
+      assert.equal(error.code, code);
+      assert.equal(error.status, status === 429 ? 429 : 502);
+      return true;
+    });
+    assert.deepEqual(logs, [{ event: 'anam_session_rejected', upstreamStatus: status, code }]);
+  }
+});
