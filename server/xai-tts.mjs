@@ -32,6 +32,7 @@ export async function synthesizeWithXai(text, {
     throw new ProviderError('xai_tts_unavailable');
   }
   if (!response.ok) {
+    if ([401, 403].includes(response.status)) throw new ProviderError('xai_tts_auth_failed', 502);
     throw new ProviderError(response.status === 429 ? 'xai_tts_quota_or_rate_limit' : 'xai_tts_request_failed', response.status === 429 ? 429 : 502);
   }
   let result;

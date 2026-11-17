@@ -4,6 +4,7 @@ import { AnamProvider, AnamRelay, anamAvatars } from './anam-provider.mjs';
 import { normalizeHistory, replayEvents } from '../shared/memory.mjs';
 import { AudioBatcher } from './audio-batcher.mjs';
 import { synthesizeWithXai } from './xai-tts.mjs';
+import { bridgeFailure } from './bridge-failure.mjs';
 import { randomUUID } from 'node:crypto';
 import { WebSocket, WebSocketServer } from 'ws';
 import express from 'express';
@@ -80,7 +81,12 @@ export function installDigitalHuman(app, server, { anam = false, portrait = fals
       if (done) return; done = true; speechGeneration++; speechController?.abort(); batch.clear(); clearInterval(heartbeat); clearTimeout(startup); bridges.delete(ticket.id);
       ai?.close(); avatar?.close(); client.close(); void sessions.stop(ticket.user, ticket.id).catch(() => {});
     };
-    const fail = () => { tell({ type: 'bridge.error', message: '連線中斷或供應商錯誤。請結束後重新連線。' }); cleanup(); };
+    const fail = (stage = 'bridge', error) => {
+      if (done) return;
+      const failure = bridgeFailure(stage, error);
+      console.warn(JSON.stringify({ event: 'bridge_failure', provider: voice.name, ...failure }));
+      tell({ type: 'bridge.error', ...failure }); cleanup();
+    };
     const batch = relay ? { append: audio => send(avatar, { type: 'agent.speak', event_id: utterance, audio }), clear() {}, flush() {} } : new AudioBatcher(audio => send(avatar, { type: 'agent.speak', event_id: utterance, audio }), { onError: fail });
     const interrupt = (cancelResponse = true) => {
       speechGeneration++; speechController?.abort(); speechController = undefined; responseText = '';
@@ -120,7 +126,7 @@ export function installDigitalHuman(app, server, { anam = false, portrait = fals
       if (done || generation !== speechGeneration) return;
       batch.flush(); send(avatar, { type: 'agent.speak_end', event_id: utterance }); speechController = undefined;
     };
-    const startup = setTimeout(fail, 25_000);
+    const startup = setTimeout(() => fail('startup'), 25_000);
     const heartbeat = setInterval(() => {
       try {
         if (ready && !active && !utterance && !speechController && !listening && Date.now() - lastActivity >= 45_000) {
@@ -138,7 +144,7 @@ export function installDigitalHuman(app, server, { anam = false, portrait = fals
         const e = JSON.parse(raw.toString());
         if (e.type === 'session.state_updated' && e.state === 'connected' && !ai) {
           ai = aiSocketFactory(voice.url, { headers: { Authorization: `Bearer ${voice.apiKey}` } });
-          ai.on('error', fail); ai.on('close', cleanup);
+          ai.on('error', error => fail('chat_connect', error)); ai.on('close', () => { if (!done) fail('chat_closed'); });
           ai.on('open', () => send(ai, { type: 'session.update', session: voice.session(`${instructions[ticket.mode]} ${ticket.mode === 'business' ? `Customer role: ${ticket.role || roles[0]}.` : ''}`) }));
           ai.on('message', raw => {
             try {
@@ -159,14 +165,14 @@ export function installDigitalHuman(app, server, { anam = false, portrait = fals
               if (!voice.xaiTts && e.type === 'response.output_audio.done' && e.response_id === responseId && utterance) { batch.flush(); send(avatar, { type: 'agent.speak_end', event_id: utterance }); }
               if (e.type === 'response.done' && (!voice.xaiTts || (active && e.response?.id === responseId))) {
                 active = false;
-                if (e.response?.status === 'failed') { fail(); return; }
+                if (e.response?.status === 'failed') { fail('chat_response', e.response?.status_details?.error); return; }
                 if (voice.xaiTts && e.response?.status === 'completed' && responseText.trim()) {
                   tell({ type: 'response.output_audio_transcript.done', response_id: responseId, transcript: responseText });
-                  void speakWithXai(responseText.trim()).catch(fail);
+                  void speakWithXai(responseText.trim()).catch(error => fail('xai_tts', error));
                 }
               }
               if (['input_audio_buffer.speech_started', 'input_audio_buffer.speech_stopped', 'conversation.item.input_audio_transcription.completed', 'response.output_audio_transcript.delta', 'response.output_audio_transcript.done', 'response.created'].includes(e.type) && (!voice.xaiTts || !e.type.startsWith('response.output_audio_transcript.'))) tell(e);
-              if (e.type === 'error') fail();
+              if (e.type === 'error') fail('chat_event', e.error);
             } catch { fail(); }
           });
         }
