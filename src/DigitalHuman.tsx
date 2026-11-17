@@ -162,6 +162,7 @@ export default function DigitalHuman({ anam = false, portrait = false }: { anam?
           const e = JSON.parse(event.data);
           if (e.type === 'portrait.audio') { setSpeaking(true); playPcm(e.audio); }
           if (e.type === 'portrait.interrupt') clearPcm();
+          if (e.type === 'portrait.audio.end') { /* Playback completion is tracked by AudioBufferSourceNode.onended. */ }
           if (e.type === 'anam.audio') { setSpeaking(true); if (!anamAudio.current) throw Error('Anam audio not ready'); anamAudio.current.sendAudioChunk(e.audio); }
           if (e.type === 'anam.audio.end') anamAudio.current?.endSequence();
           if (e.type === 'anam.interrupt') { anamClient.current?.interruptPersona(); anamAudio.current?.endSequence(); }
