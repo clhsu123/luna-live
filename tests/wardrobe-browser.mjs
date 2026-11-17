@@ -16,7 +16,14 @@ try {
  await page.waitForFunction(()=>Number(document.querySelector('.wardrobe-motion')?.getAttribute('data-frame'))>0);
  await page.getByRole('button',{name:'暫停角色動畫'}).click();await page.waitForFunction(()=>document.querySelector('.wardrobe-motion')?.getAttribute('data-frame')==='0');await page.waitForTimeout(200);assert.equal(await page.locator('.wardrobe-motion').getAttribute('data-frame'),'0');
  await page.getByRole('button',{name:'播放角色動畫'}).click();
+ await page.getByRole('button',{name:'依照系統動畫設定'}).click();
  await page.emulateMedia({reducedMotion:'reduce'});await page.waitForFunction(()=>document.querySelector('.wardrobe-motion')?.getAttribute('data-frame')==='0');assert.equal(await page.locator('.wardrobe-motion').getAttribute('data-frame'),'0');
+ await page.getByRole('button',{name:'播放角色動畫'}).click();
+ await page.waitForFunction(()=>Number(document.querySelector('.wardrobe-motion')?.getAttribute('data-frame'))>0);
+ await page.getByRole('button',{name:'暫停角色動畫'}).click();
+ await page.waitForFunction(()=>document.querySelector('.wardrobe-motion')?.getAttribute('data-frame')==='0');
+ await page.getByRole('button',{name:'依照系統動畫設定'}).click();
+ assert.ok(await page.getByRole('button',{name:'播放角色動畫'}).isVisible());
  await page.emulateMedia({reducedMotion:'no-preference'});
  await page.reload();assert.match(await page.locator('.dh-video-frame>.wardrobe-portrait').getAttribute('aria-label'),/^20/);
  await page.screenshot({path:'artifacts/wardrobe-desktop.png',fullPage:true});

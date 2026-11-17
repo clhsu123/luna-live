@@ -23,7 +23,15 @@ export default function DigitalHuman({ anam = false, portrait = false }: { anam?
     try { localStorage.setItem('luna.avatar-size.v1', size); } catch { /* Still works for this visit. */ }
   }
   const [portraitId, selectPortrait] = usePortrait();
-  const [motionPaused, setMotionPaused] = useState(false);
+  const [motionChoice, setMotionChoice] = useState<boolean | null>(null);
+  const [systemReducedMotion, setSystemReducedMotion] = useState(()=>matchMedia('(prefers-reduced-motion: reduce)').matches);
+  const motionPaused = motionChoice ?? systemReducedMotion;
+  useEffect(()=>{
+    const media=matchMedia('(prefers-reduced-motion: reduce)');
+    const update=()=>setSystemReducedMotion(media.matches);
+    update();media.addEventListener('change',update);
+    return ()=>media.removeEventListener('change',update);
+  },[]);
   const pcmPlayback = useRef<PcmPlayback | undefined>(undefined);
   function clearPcm() { pcmPlayback.current?.clear(); }
   function playPcm(encoded: string) {
@@ -212,7 +220,7 @@ export default function DigitalHuman({ anam = false, portrait = false }: { anam?
   return <div className={`dh-app${keyboardOpen ? ' dh-keyboard-open' : ''}`}>
     <header className="dh-header"><a href="/">LUNA<span>LIVE</span></a><span>即時 AI 對話</span><span>你的 AI 女友 · 25+</span></header>
     <nav className="dh-mode-nav" aria-label="人像模式"><a href="/anam" aria-current={!portrait ? 'page' : undefined}>Anam 動態人像</a><a href="/portraits" aria-current={portrait ? 'page' : undefined}>20 款動畫造型</a></nav>
-    {portrait && <><PortraitPicker selected={portraitId} onSelect={selectPortrait}/><div className="dh-size-controls"><button type="button" aria-pressed={motionPaused} onClick={()=>setMotionPaused(!motionPaused)}>{motionPaused ? '播放角色動畫' : '暫停角色動畫'}</button></div></>}
+    {portrait && <><PortraitPicker selected={portraitId} onSelect={selectPortrait}/><div className="dh-size-controls"><button type="button" aria-pressed={motionPaused} onClick={()=>setMotionChoice(!motionPaused)}>{motionPaused ? '播放角色動畫' : '暫停角色動畫'}</button>{motionChoice !== null && <button type="button" onClick={()=>setMotionChoice(null)}>依照系統動畫設定</button>}<small role="status">{motionChoice === null && systemReducedMotion ? '系統已減少動態效果；按播放可啟用本頁動畫。' : motionPaused ? '角色動畫已暫停' : '角色動畫播放中；選角縮圖為靜態預覽。'}</small></div></>}
     <details className="dh-characters dh-memory"><summary>對話記憶 · {entries.length} 則</summary>
       <p className="memory-note">對話記憶：{entries.length} 則 · 保存在此瀏覽器，重新連線可接續。
       <button onClick={async () => { if (window.confirm('清除對話記憶並結束目前對話？')) { await stop(); setEntries([]); } }}>清除對話記憶</button>

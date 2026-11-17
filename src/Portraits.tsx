@@ -32,16 +32,15 @@ export function AnimatedPortrait({id,speaking,paused}: {id:number;speaking:boole
   return ()=>{active=false;image.onload=null;image.onerror=null;};
  },[id]);
  useEffect(()=>{
-  const preference=matchMedia('(prefers-reduced-motion: reduce)');
   let timer: ReturnType<typeof setInterval> | undefined;
   const update=()=>{
    clearInterval(timer);setFrame(0);
-   if (!loaded || failed || paused || preference.matches || document.hidden) return;
+   if (!loaded || failed || paused || document.hidden) return;
    const start=performance.now();
    timer=setInterval(()=>setFrame(portraitFrame(performance.now()-start,speaking)),70);
   };
-  update();preference.addEventListener('change',update);document.addEventListener('visibilitychange',update);
-  return ()=>{clearInterval(timer);preference.removeEventListener('change',update);document.removeEventListener('visibilitychange',update);};
+  update();document.addEventListener('visibilitychange',update);
+  return ()=>{clearInterval(timer);document.removeEventListener('visibilitychange',update);};
  },[loaded,failed,paused,speaking]);
  if(failed)return <><Portrait id={id}/><span className="motion-load-error" role="status">動畫載入失敗，暫時顯示原圖。</span></>;
  return <svg className="wardrobe-portrait wardrobe-motion" viewBox="0 0 384 512" role="img" aria-label={`${portraits[id-1].label} · 逐格動畫`} data-frame={frame} data-loaded={loaded} preserveAspectRatio="xMidYMid meet">
