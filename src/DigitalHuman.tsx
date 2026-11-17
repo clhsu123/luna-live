@@ -3,6 +3,10 @@ import { useEffect, useRef, useState } from 'react';
 import { Room, RoomEvent, Track } from 'livekit-client';
 import './digital.css';
 import './characters.css';
+import { CompanionVideo } from './CompanionVideo';
+import { PcmPlayback } from '../shared/pcm-playback.mjs';
+import { PortraitPicker, AnimatedPortrait, usePortrait } from './Portraits';
+import { CharacterPicker, useCharacter } from './Characters';
 import { useSharedMemory, getMemory, memoryStorageFailed } from './sharedMemory';
 import { normalizeHistory } from '../shared/memory.mjs';
 type Mode = 'companion' | 'korean' | 'business';
@@ -10,14 +14,31 @@ type Entry = { id: string; role: 'user' | 'assistant'; text: string; time: strin
 type Configuration = { configured: boolean; sandbox: boolean; roles: string[]; characters?: string[] };
 type Session = { id: string; url: string; token: string; ticket: string; sandbox: boolean; sessionToken?: string };
 const modes: Record<Mode, string> = { companion: '女友陪伴', korean: '韓文練習', business: '半導體商務模擬' };
-export default function DigitalHuman({ anam = false }: { anam?: boolean }) {
-  const api = anam ? '/api/anam' : '/api/avatar';
+export default function DigitalHuman({ anam = false, portrait = false, companion = false }: { anam?: boolean; portrait?: boolean; companion?: boolean }) {
+  const api = portrait ? '/api/portrait' : anam ? '/api/anam' : '/api/avatar';
   const [avatarSize, setAvatarSize] = useState<'small' | 'medium' | 'large'>(() => {
     try { const saved = localStorage.getItem('luna.avatar-size.v1'); return saved === 'small' || saved === 'large' ? saved : 'medium'; } catch { return 'medium'; }
   });
   function changeAvatarSize(size: 'small' | 'medium' | 'large') {
     setAvatarSize(size);
     try { localStorage.setItem('luna.avatar-size.v1', size); } catch { /* Still works for this visit. */ }
+  }
+  const [portraitId, selectPortrait] = usePortrait();
+  const [motionChoice, setMotionChoice] = useState<boolean | null>(null);
+  const [systemReducedMotion, setSystemReducedMotion] = useState(()=>matchMedia('(prefers-reduced-motion: reduce)').matches);
+  const motionPaused = motionChoice ?? systemReducedMotion;
+  useEffect(()=>{
+    const media=matchMedia('(prefers-reduced-motion: reduce)');
+    const update=()=>setSystemReducedMotion(media.matches);
+    update();media.addEventListener('change',update);
+    return ()=>media.removeEventListener('change',update);
+  },[]);
+  const pcmPlayback = useRef<PcmPlayback | undefined>(undefined);
+  function clearPcm() { pcmPlayback.current?.clear(); }
+  function playPcm(encoded: string) {
+    if (!context.current) throw Error('Audio not ready');
+    pcmPlayback.current ||= new PcmPlayback(context.current, setSpeaking);
+    pcmPlayback.current.append(encoded);
   }
   const anamClient = useRef<ReturnType<typeof createClient> | undefined>(undefined);
   const anamAudio = useRef<ReturnType<ReturnType<typeof createClient>['createAgentAudioInputStream']> | undefined>(undefined);
@@ -31,7 +52,8 @@ export default function DigitalHuman({ anam = false }: { anam?: boolean }) {
   const [error, setError] = useState(''); const [input, setInput] = useState('');
   const [muted, setMuted] = useState(false); const [subtitles, setSubtitles] = useState(true);
   const [speaking, setSpeaking] = useState(false); const [entries, setEntries] = useSharedMemory();
-  const characterId = 'luna-office'; // Preserve the existing server avatar mapping; ignore old appearance selections.
+  const [character, selectCharacter] = useCharacter();
+  const characterId = character.id;
   const [latency, setLatency] = useState<number>(); const [videoReady, setVideoReady] = useState(false);
   const video = useRef<HTMLVideoElement>(null); const media = useRef<MediaStream | undefined>(undefined);
   const room = useRef<Room | undefined>(undefined); const socket = useRef<WebSocket | undefined>(undefined); const context = useRef<AudioContext | undefined>(undefined);
@@ -46,7 +68,7 @@ export default function DigitalHuman({ anam = false }: { anam?: boolean }) {
     const value = await res.json(); if (!res.ok) throw Error(value.error || `Request failed: ${res.status}`); return value;
   }
   async function stop() {
-    recording.current = false; setRecordingNow(false); setFinishing(false);
+    clearPcm(); pcmPlayback.current = undefined; recording.current = false; setRecordingNow(false); setFinishing(false);
     generation.current++; busy.current = false;
     const previousAnam = anamClient.current; anamClient.current = undefined; anamAudio.current = undefined;
     void previousAnam?.stopStreaming().catch(() => {}); socket.current?.close(); socket.current = undefined;
@@ -116,7 +138,7 @@ export default function DigitalHuman({ anam = false }: { anam?: boolean }) {
         await client.streamToVideoElement('luna-avatar-video');
         if (stale()) { await client.stopStreaming(); return; }
         anamAudio.current = client.createAgentAudioInputStream({ encoding: 'pcm_s16le', sampleRate: 24000, channels: 1 });
-      } else {
+      } else if (!portrait) {
       const rtc = new Room(); room.current = rtc;
       rtc.on(RoomEvent.TrackSubscribed, track => {
         if (stale()) return;
@@ -144,14 +166,17 @@ export default function DigitalHuman({ anam = false }: { anam?: boolean }) {
         if (stale()) return;
         try {
           const e = JSON.parse(event.data);
+          if (e.type === 'portrait.audio') { playPcm(e.audio); }
+          if (e.type === 'portrait.interrupt') clearPcm();
+          if (e.type === 'portrait.audio.end') pcmPlayback.current?.end();
           if (e.type === 'anam.audio') { setSpeaking(true); if (!anamAudio.current) throw Error('Anam audio not ready'); anamAudio.current.sendAudioChunk(e.audio); }
           if (e.type === 'anam.audio.end') anamAudio.current?.endSequence();
-          if (e.type === 'anam.interrupt') { anamClient.current?.interruptPersona(); anamAudio.current?.endSequence(); }
+          if (e.type === 'anam.interrupt') { setSpeaking(false); anamClient.current?.interruptPersona(); anamAudio.current?.endSequence(); }
           if (e.type === 'bridge.ready') { ready = true; setStatus('connected'); }
           if (e.type === 'turn.empty') setError('沒有收到足夠音訊，請再按「開始說話」。');
           if (e.type === 'bridge.error') { void stop(); setError(e.message); }
-          if (e.type === 'avatar.speaking') { setSpeaking(e.value); if (typeof e.responseLatencyMs === 'number') setLatency(e.responseLatencyMs); }
-          if (e.type === 'conversation.item.input_audio_transcription.completed') setEntries(prev => [...prev, { id: e.item_id, role: 'user', text: e.transcript, time: '' }]);
+          if (e.type === 'avatar.speaking') { if (!portrait) setSpeaking(e.value); if (typeof e.responseLatencyMs === 'number') setLatency(e.responseLatencyMs); }
+          if (e.type === 'conversation.item.input_audio_transcription.completed') setEntries(prev => [...prev.filter(entry => entry.id !== e.item_id), { id: e.item_id, role: 'user', text: e.transcript, time: '' }]);
           if (e.type === 'response.output_audio_transcript.delta' || e.type === 'response.output_audio_transcript.done') {
             setEntries(prev => {
               const id = e.response_id; const old = prev.find(x => x.id === id);
@@ -195,16 +220,19 @@ export default function DigitalHuman({ anam = false }: { anam?: boolean }) {
   const active = status !== 'idle';
   return <div className={`dh-app${keyboardOpen ? ' dh-keyboard-open' : ''}`}>
     <header className="dh-header"><a href="/">LUNA<span>LIVE</span></a><span>即時 AI 對話</span><span>你的 AI 女友 · 25+</span></header>
+    <nav className="dh-mode-nav" aria-label="人像模式"><a href="/anam" aria-current={!portrait ? 'page' : undefined}>Anam 動態人像</a><a href="/companion" aria-current={companion ? 'page' : undefined}>Luna B 動畫陪伴</a><a href="/portraits" aria-current={portrait && !companion ? 'page' : undefined}>20 款動畫造型</a></nav>
+    {portrait && <>{!companion && <PortraitPicker selected={portraitId} onSelect={selectPortrait}/>}<div className="dh-size-controls"><button type="button" aria-pressed={motionPaused} onClick={()=>setMotionChoice(!motionPaused)}>{motionPaused ? '播放角色動畫' : '暫停角色動畫'}</button>{motionChoice !== null && <button type="button" onClick={()=>setMotionChoice(null)}>依照系統動畫設定</button>}<small role="status">{motionChoice === null && systemReducedMotion ? '系統已減少動態效果；按播放可啟用本頁動畫。' : motionPaused ? '角色動畫已暫停' : '角色動畫播放中；選角縮圖為靜態預覽。'}</small></div></>}
     <details className="dh-characters dh-memory"><summary>對話記憶 · {entries.length} 則</summary>
       <p className="memory-note">對話記憶：{entries.length} 則 · 保存在此瀏覽器，重新連線可接續。
       <button onClick={async () => { if (window.confirm('清除對話記憶並結束目前對話？')) { await stop(); setEntries([]); } }}>清除對話記憶</button>
       {memoryStorageFailed() && <span role="alert">瀏覽器儲存失敗，目前記憶僅保留到頁面關閉。</span>}</p></details>
+    {anam && <><CharacterPicker selected={characterId} onSelect={id => { void stop().then(() => selectCharacter(id)); }}/>{config && !config.characters?.includes(characterId) && <p className="dh-notice">此造型尚未連結 Anam Avatar ID。請在伺服器設定 ANAM_AVATAR_MAP 後即可使用。</p>}</>}
     <div className="dh-size-controls" role="group" aria-label="人像大小"><span>視窗大小 · 完整上半身</span>{([['small', '小'], ['medium', '中'], ['large', '大']] as const).map(([size, label]) => <button key={size} type="button" aria-pressed={avatarSize === size} onClick={() => changeAvatarSize(size)}>{label}</button>)}</div>
-    <main className={`dh-layout dh-size-${avatarSize}`}><section className="dh-stage" aria-label="數位人影片">
+    <main className={`dh-layout dh-size-${avatarSize}`}><section className="dh-stage" aria-label={portrait ? "動畫造型" : "數位人影片"}>
       <div className="dh-status" role="status"><i className={active ? 'on' : ''}/>{status === 'connected' ? speaking ? anam ? 'Luna 語音回覆中' : 'Luna 正在說話' : recordingNow ? '收音中 · 說完請按按鈕' : '已連線 · 請按開始說話' : status === 'connecting' ? '連線中' : status === 'reconnecting' ? '重新連線中' : '尚未連線'}</div>
-      <div className="dh-video-frame"><video id="luna-avatar-video" ref={video} autoPlay playsInline muted={!anam} onLoadedMetadata={() => { void video.current?.play().catch(() => setPlaybackBlocked(true)); }} onPlaying={() => { setVideoReady(true); setPlaybackBlocked(false); }} />
-      {!videoReady && <div className="dh-placeholder"><span className="dh-orb">L</span><h1>今天，讓我陪你。</h1><p>{active ? '正在建立即時影像連線…' : "開始對話，和 Luna 分享你的今天。"}</p></div>}{playbackBlocked && <button className="dh-play-overlay" onClick={enablePlayback}>點一下啟用影音</button>}</div>
-      <div className="dh-caption">{anam ? "Luna · 每次對話最多 3 分鐘" : config?.sandbox ? 'SANDBOX · Wayne 測試角色 · 約 60 秒' : 'LUNA · AI 數位人'}{latency !== undefined && <small>伺服器語音結束 → avatar 開口事件：{latency} ms（非端到端量測）</small>}</div>
+      <div className="dh-video-frame" style={companion ? {aspectRatio:'912 / 992'} : undefined}>{portrait && (companion ? <CompanionVideo paused={motionPaused} getLevel={()=>pcmPlayback.current?.mouthLevel() ?? 0}/> : <AnimatedPortrait key={portraitId} id={portraitId} speaking={speaking} paused={motionPaused}/>)}<video hidden={portrait} id="luna-avatar-video" ref={video} autoPlay playsInline muted={!anam} onLoadedMetadata={() => { void video.current?.play().catch(() => setPlaybackBlocked(true)); }} onPlaying={() => { setVideoReady(true); setPlaybackBlocked(false); }} />
+      {!portrait && !videoReady && <div className="dh-placeholder"><span className="dh-orb">L</span><h1>今天，讓我陪你。</h1><p>{active ? '正在建立即時影像連線…' : "開始對話，和 Luna 分享你的今天。"}</p></div>}{playbackBlocked && <button className="dh-play-overlay" onClick={enablePlayback}>點一下啟用影音</button>}</div>
+      <div className="dh-caption">{companion ? "本地重用動作 · 音量驅動嘴巴開合（非逐字對嘴）" : portrait ? "角色逐格動畫 · 無語音對嘴" : anam ? "Luna · 每次對話最多 3 分鐘" : config?.sandbox ? 'SANDBOX · Wayne 測試角色 · 約 60 秒' : 'LUNA · AI 數位人'}{latency !== undefined && <small>伺服器語音結束 → avatar 開口事件：{latency} ms（非端到端量測）</small>}</div>
     <footer className="dh-controls"><button className="dh-primary" disabled={status !== 'connected' || finishing} aria-pressed={recordingNow} onClick={() => { void toggleTurn(); }}>{finishing ? '送出中…' : recordingNow ? '我說完了' : '開始說話'}</button><button className="dh-primary" onClick={() => { if (active) void stop(); else void start(); }} disabled={!active && (!config?.configured || (anam && !config?.characters?.includes(characterId)))}>{active ? '結束對話' : '開始對話'}</button><button aria-pressed={muted} onClick={() => { muteRef.current = !muted; setMuted(!muted); }} disabled={!active}>{muted ? '開啟麥克風' : '靜音'}</button><button disabled={status !== 'connected'} onClick={() => socket.current?.send(JSON.stringify({ type: 'interrupt' }))}>打斷 Luna</button><button aria-pressed={subtitles} onClick={() => setSubtitles(!subtitles)}>逐字稿 {subtitles ? '開' : '關'}</button><button disabled={!active} onClick={enablePlayback}>啟用播放</button></footer>
     <p className="dh-footnote">按「開始說話」收音，中途可停頓；按「我說完了」才會回答。</p>
     </section><aside className="dh-panel">

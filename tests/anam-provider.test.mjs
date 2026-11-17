@@ -40,3 +40,13 @@ test('Anam audio forwarding preserves PCM, closes each sequence, and resets on i
   relay.send(JSON.stringify({type:'agent.interrupt'})); assert.equal(relay.milliseconds,0);
   assert.equal(events.at(-1).type,'anam.interrupt'); relay.close();
 });
+
+test('relay completion accounts for streamed time and cancels previous sequence timers', t => {
+ t.mock.timers.enable({apis:['Date','setTimeout'],now:1000});
+ const events=[],relay=new AnamRelay(()=>{});relay.on('message',raw=>events.push(JSON.parse(raw)));
+ const send=(type,event_id='one')=>relay.send(JSON.stringify({type,event_id,audio:Buffer.alloc(48000).toString('base64')}));
+ send('agent.speak');t.mock.timers.tick(1000);send('agent.speak_end');
+ t.mock.timers.tick(1499);assert.equal(events.length,0);t.mock.timers.tick(1);assert.equal(events.length,1);
+ send('agent.speak','two');send('agent.speak_end','two');send('agent.interrupt');
+ t.mock.timers.tick(5000);assert.equal(events.length,1);relay.close();
+});

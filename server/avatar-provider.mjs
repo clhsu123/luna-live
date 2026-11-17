@@ -78,8 +78,10 @@ export class AvatarSessions {
       if (this.closed) { await this.provider.stop(session.id); throw new ProviderError('shutting_down', 503); }
       const record = { ...session, owner, timer: null, stopping: null };
       this.sessions.set(session.id, record);
-      record.timer = setTimeout(() => { void this.stop(owner, session.id).catch(() => {}); }, this.ttlMs);
-      record.timer.unref?.();
+      if (this.ttlMs !== null) {
+        record.timer = setTimeout(() => { void this.stop(owner, session.id).catch(() => {}); }, this.ttlMs);
+        record.timer.unref?.();
+      }
       return { id: session.id, ...session.client };
     } finally { this.pending--; }
   }

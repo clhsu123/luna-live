@@ -99,7 +99,7 @@ not end the turn. Existing provider session duration limits still apply.
 
 ## Anam 人像串接（/anam）
 
-OpenAI 繼續負責語音、對話及手動發話控制。Anam 僅接收 24 kHz mono PCM16 音訊並回傳同步影音。原 LiveAvatar 頁面 /digital 保留。
+Anam receives 24 kHz mono PCM16 audio and returns synchronized video. The AI and speech providers are selected by the environment configuration below. The current / and /digital entry points also open Anam. Legacy LiveAvatar backend code is retained but is not a newly enabled product mode.
 
 在 Render 的既有服務 Environment 新增（不要把 key 放進 GitHub 或前端）：
 
@@ -114,20 +114,31 @@ OpenAI 繼續負責語音、對話及手動發話控制。Anam 僅接收 24 kHz 
 
 驗收：先確認真正影片出現，再說一句中文，按「我說完了」，確認嘴型和聲音同步；測試短句、連續兩輪、打斷、文字訊息、切換已設定角色、重連帶入記憶和結束後不再播放。程式測試無法取代具有效 key 與 avatar 的真實 WebRTC 驗收。
 
-## xAI realtime voice (production Anam interface)
+## ChatGPT conversation with xAI speech on Anam
 
-Set `XAI_API_KEY` in Render, server-side only. When present, the avatar bridge
-uses xAI for both conversation and realtime voice; otherwise it retains OpenAI.
-`AI_PROVIDER=xai|openai` explicitly overrides selection (no silent failover).
-Optional: `XAI_REALTIME_MODEL=grok-voice-latest`, `XAI_VOICE=eve`.
-Anam avatar settings, login, manual speech turns and browser-local memory are unchanged.
-The historical `/api/session` SDP endpoint remains OpenAI-only; the production UI
-uses `/api/anam/bridge`. `/api/health` and authenticated avatar status expose the
-selected provider but never credentials. Roll back with `AI_PROVIDER=openai` and
-redeploy, keeping the OpenAI key available.
+Set `OPENAI_API_KEY`, `XAI_API_KEY`, `CHAT_PROVIDER=openai`, and
+`CHAT_OUTPUT=xai-tts` in the hosting service environment. Keep both keys on the
+server; never place them in frontend variables or Git. `OPENAI_REALTIME_MODEL`
+selects the OpenAI conversation model. `XAI_TTS_VOICE` selects the xAI voice
+(default `eve`). The older `AI_PROVIDER` switch remains available for the
+original single-provider realtime path.
 
-Validation: `npm test && npm run build`; actual xAI credentials, account credit,
-Anam lip-sync and iPhone Safari require a live conversation check.
+In this split mode, OpenAI produces the response text and xAI produces
+timestamped 24 kHz PCM speech. The selected Anam avatar receives that audio and
+performs its own real-time lip sync. xAI's current voice API does not control
+Anam facial expressions or gestures. Idle animation remains in the avatar
+provider. The `/api/anam/status` response reports provider names and readiness,
+never credentials. If xAI TTS is not configured, sessions are rejected with a
+configuration error rather than silently returning a silent avatar.
+
+Conversation history is Luna's existing browser-local shared memory: it is
+replayed as context when OpenAI starts a session and can be cleared in the UI.
+It is not the private memory attached to a user's ChatGPT account and does not
+sync across browsers or devices.
+
+Deployment still needs a live check with valid OpenAI and xAI credentials, an
+Anam avatar mapping, account credit, and the target browser. Automated checks
+cannot verify provider-side lip sync or speech quality.
 
 ## Persistent trilingual Luna persona
 
@@ -138,3 +149,61 @@ flirting remains playful and non-explicit, and customer-facing examples stay
 professional. Hanja annotations are requested for written teaching material;
 realtime speech transcripts may remain verbatim without separate annotations.
 These persona rules persist across sessions, independently of browser-local memory.
+
+
+## Independent 20-style animation mode
+
+`/portraits` adds 20 selectable characters derived from the approved After Hours
+(01–10) and Office (11–20) sheets. Each character has its own eight-frame sprite
+with blink, head turns, nod and wave poses. The original sheets remain unchanged
+for picker thumbnails and load-error fallback. These are discrete frame animations,
+not continuous video or phoneme-synchronized lips. Selection persists locally
+and can change during a call. Animation can be paused, respects reduced-motion
+preferences and stops when the page is hidden. Only the selected sprite is loaded. `/`, `/anam`, and `/digital` keep the Anam interface.
+
+Portrait calls use `/api/portrait`, the same authenticated manual-turn bridge and
+provider configuration, with browser PCM playback. They allocate no Anam or
+LiveAvatar session. OpenAI/xAI usage still incurs provider charges. The same
+180-second session and 45-second idle limits apply. In split mode configure
+`CHAT_PROVIDER=openai` and `CHAT_OUTPUT=xai-tts`; do not change or publish keys.
+
+Regression validation: `npm ci --ignore-scripts && npm run build && npm test`.
+The build must precede HTTP tests because those verify production assets.
+`tests/split-bridge.test.mjs` covers both Anam and portrait split paths including
+user transcripts, current response IDs, repeated/cancelled/stale completions,
+text turns, PCM delivery and pending TTS cancellation. TTS request tests verify
+`output_format: { codec: 'pcm', sample_rate: 24000 }` as documented at
+https://docs.x.ai/developers/model-capabilities/audio/text-to-speech .
+
+Optional browser check: start the built server on port 18788 with
+`APP_PASSWORD=local-ui-test`, then run `node tests/wardrobe-browser.mjs`.
+It verifies all 20 unique selections, persistence, mobile overflow, Anam
+navigation and business roles. Actual microphone input, xAI speech, Anam video
+and lip sync still require a staging call with valid server-side credentials.
+No ChatGPT private-memory import or writeback is implemented by this change.
+
+## PR #4 pre-production review
+
+See [PR-4-VALIDATION.md](PR-4-VALIDATION.md) for verified checks, provider contracts,
+remaining release blockers, required environment variables and rollback steps.
+Twenty independent sprite animations are implemented. Live provider acceptance
+and visual motion-quality acceptance remain release gates. See public/wardrobe/motion/README.md
+for generation provenance and limitations.
+
+## Single-character local video companion (/companion)
+
+The B character uses three curated, silent video loops and precomputed mouth
+landmarks. The browser reuses motion locally, avoids recent clip repeats, and
+blends transitions. Speech still uses the existing OpenAI/xAI portrait bridge;
+no new lip-sync provider, API key, or video-generation request is introduced.
+Mouth opening follows scheduled audible PCM amplitude, not transcript length.
+This is an approximate talking effect, not phoneme or word-accurate lip sync.
+Interrupt and session end clear the mouth envelope. Hidden pages stop motion;
+reduced-motion and explicit pause controls are honored. Anam and /portraits remain.
+
+The three 24fps loops are derived from user-supplied B videos. Per-frame mouth
+positions were computed offline using MediaPipe 0.10.21's CPU face landmarker;
+the model and Python dependencies are not shipped to browsers. WebGL is required
+for the talking effect. The source clips have different poses/clothing states;
+short blended transitions cannot guarantee cinematic continuity. Real mobile
+playback and perceived naturalness require visual acceptance.

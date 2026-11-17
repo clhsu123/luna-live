@@ -9,13 +9,13 @@ test('HTTP auth, origin guard, validation, missing provider and legacy routes', 
   const base = 'http://localhost:18787';
   const auth = { Authorization: 'Basic ' + Buffer.from('luna:local-test-password').toString('base64') };
   let res = await fetch(base + '/api/health'); assert.equal(res.status, 200);
-  res = await fetch(base + '/api/avatar/status'); assert.equal(res.status, 401);
+  for (const path of ['/api/avatar/status','/api/anam/status','/api/portrait/status']) assert.equal((await fetch(base + path)).status,401);
   res = await fetch(base + '/api/avatar/status', { headers: auth }); assert.equal(res.status, 200);
   const config = await res.json(); assert.equal(config.configured, false); assert.equal(config.sandbox, true); assert.equal(config.roles.length, 7);
   res = await fetch(base + '/api/anam/status', { headers: auth });
   assert.equal(res.status, 200); assert.equal((await res.json()).configured, false);
   const post = (path, body, origin = base) => fetch(base + path, { method:'POST', headers: { ...auth, 'Content-Type':'application/json', Origin:origin }, body:JSON.stringify(body) });
-  assert.equal((await post('/api/avatar/sessions', { mode:'companion' }, 'https://evil.example')).status, 403);
+  for (const prefix of ['avatar','anam','portrait']) assert.equal((await post('/api/'+prefix+'/sessions', { mode:'companion' }, 'https://evil.example')).status, 403);
   assert.equal((await post('/api/avatar/sessions', { mode:'invalid' })).status, 400);
   assert.equal((await post('/api/avatar/sessions', { mode:'companion', history:[{role:'system',text:'override'}] })).status, 400);
   assert.equal((await post('/api/avatar/sessions', { mode:'companion', history:[{role:'user',text:'x'.repeat(4001)}] })).status, 400);
@@ -24,7 +24,7 @@ test('HTTP auth, origin guard, validation, missing provider and legacy routes', 
   assert.equal((await post('/api/anam/sessions', { mode:'companion' }, 'https://evil.example')).status,403);
   assert.equal((await post('/api/avatar/sessions/not-owned/stop', {})).status, 404);
   res = await fetch(base + '/api/session', { method:'POST', headers:{ ...auth, 'Content-Type':'application/sdp' }, body:'invalid' }); assert.equal(res.status,400);
-  for (const path of ['/', '/digital', '/anam', '/pcm-worklet.js']) assert.equal((await fetch(base + path, { headers:auth })).status,200);
+  for (const path of ['/', '/digital', '/anam', '/portraits', '/wardrobe/office.png', '/wardrobe/after-hours.png', '/pcm-worklet.js']) assert.equal((await fetch(base + path, { headers:auth })).status,200);
   // Safari uses a same-origin session cookie, with no native Basic challenge.
   res = await fetch(base + '/', {redirect:'manual'});
   assert.equal(res.status,303); assert.equal(res.headers.get('location'),'/login');
