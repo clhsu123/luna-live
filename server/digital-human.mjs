@@ -17,7 +17,7 @@ export function installDigitalHuman(app, server, { anam = false, portrait = fals
   const prefix = portrait ? '/api/portrait' : anam ? '/api/anam' : '/api/avatar';
   const sandbox = !relay && process.env.LIVEAVATAR_SANDBOX !== 'false';
   const provider = providerOverride || (portrait ? { create: async () => ({ id: randomUUID(), client: {} }), stop: async () => {} } : anam ? new AnamProvider() : new LiveAvatarProvider({ apiKey: process.env.LIVEAVATAR_API_KEY, avatarId: process.env.LIVEAVATAR_AVATAR_ID, sandbox, allowPaid: process.env.ALLOW_PAID_AVATAR === 'true' }));
-  const sessions = new AvatarSessions(provider, { ttlMs: portrait ? null : anam ? 180_000 : sandbox ? 60_000 : 300_000 });
+  const sessions = new AvatarSessions(provider, { ttlMs: portrait ? null : anam ? 600_000 : sandbox ? 60_000 : 300_000 });
   const tickets = new Map(); const bridges = new Map();
   const origin = process.env.APP_ORIGIN || process.env.RENDER_EXTERNAL_URL;
   const json = express.json({ limit: '128kb' });
