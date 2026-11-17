@@ -189,3 +189,21 @@ remaining release blockers, required environment variables and rollback steps.
 Twenty independent sprite animations are implemented. Live provider acceptance
 and visual motion-quality acceptance remain release gates. See public/wardrobe/motion/README.md
 for generation provenance and limitations.
+
+## Single-character local video companion (/companion)
+
+The B character uses three curated, silent video loops and precomputed mouth
+landmarks. The browser reuses motion locally, avoids recent clip repeats, and
+blends transitions. Speech still uses the existing OpenAI/xAI portrait bridge;
+no new lip-sync provider, API key, or video-generation request is introduced.
+Mouth opening follows scheduled audible PCM amplitude, not transcript length.
+This is an approximate talking effect, not phoneme or word-accurate lip sync.
+Interrupt and session end clear the mouth envelope. Hidden pages stop motion;
+reduced-motion and explicit pause controls are honored. Anam and /portraits remain.
+
+The three 24fps loops are derived from user-supplied B videos. Per-frame mouth
+positions were computed offline using MediaPipe 0.10.21's CPU face landmarker;
+the model and Python dependencies are not shipped to browsers. WebGL is required
+for the talking effect. The source clips have different poses/clothing states;
+short blended transitions cannot guarantee cinematic continuity. Real mobile
+playback and perceived naturalness require visual acceptance.

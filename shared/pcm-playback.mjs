@@ -1,8 +1,10 @@
+import { MouthEnvelope } from './voice-envelope.mjs';
 // Browser PCM16 mono playback. A sequence ends only after both the end marker
 // and its final scheduled sample; temporary network gaps do not end speaking.
 export class PcmPlayback {
   constructor(context, onSpeaking) {
     this.context = context; this.onSpeaking = onSpeaking;
+    this.mouth = new MouthEnvelope();
     this.sources = new Set(); this.nextTime = 0; this.receiving = false;
   }
   append(encoded) {
@@ -23,13 +25,18 @@ export class PcmPlayback {
       source.disconnect();
       if (!this.receiving && !this.sources.size) this.onSpeaking(false);
     };
-    source.start(start); this.onSpeaking(true);
+    source.start(start); this.mouth.at(this.context.currentTime); this.mouth.append(samples, 24000, start); this.onSpeaking(true);
+  }
+  mouthLevel() {
+    if (this.context.state && this.context.state !== 'running') return 0;
+    return this.mouth.at(this.context.currentTime);
   }
   end() {
     this.receiving = false;
     if (!this.sources.size) this.onSpeaking(false);
   }
   clear() {
+    this.mouth.clear();
     for (const source of this.sources) {
       source.onended = null;
       try { source.stop(); } catch { /* Already ended. */ }

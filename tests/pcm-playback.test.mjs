@@ -30,3 +30,17 @@ test('interrupt stops all nodes and stale callbacks cannot change a later sequen
 test('malformed PCM never creates a source',()=>{
  const {player,nodes}=fixture();for(const audio of ['', 'AA==', '!'])assert.throws(()=>player.append(audio));assert.equal(nodes.length,0);
 });
+
+test('mouth amplitude follows audible PCM clock and immediately clears on interruption',()=>{
+ const {player,context}=fixture();
+ const data=Buffer.alloc(4800);for(let i=0;i<data.length;i+=2)data.writeInt16LE(8000,i);
+ player.append(data.toString('base64'));
+ assert.equal(player.mouthLevel(),0);
+ context.currentTime=10.05;assert(player.mouthLevel()>0);
+ context.state='suspended';assert.equal(player.mouthLevel(),0);
+ context.state='running';player.clear();assert.equal(player.mouthLevel(),0);
+});
+test('queued silent PCM does not open mouth although sequence is speaking',()=>{
+ const {player,context}=fixture();player.append(audio);context.currentTime=10.05;
+ assert.equal(player.mouthLevel(),0);
+});
