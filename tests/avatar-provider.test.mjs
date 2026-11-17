@@ -95,3 +95,17 @@ test('unknown, missing, string or null success envelopes remain rejected', async
     await rejects(provider.request('token', {}), 'avatar_invalid_response');
   }
 });
+
+test('unlimited portrait sessions have no lifetime timer but preserve ownership, capacity and shutdown', async () => {
+  let stopped = 0;
+  const registry = new AvatarSessions({ create: async () => ({ id: 'long-session', client: {} }), stop: async () => { stopped++; } }, { ttlMs: null });
+  await registry.create('owner');
+  assert.equal(registry.get('owner', 'long-session').timer, null);
+  await new Promise(resolve => setTimeout(resolve, 20));
+  assert.equal(stopped, 0);
+  await rejects(registry.create('owner'), 'session_already_active');
+  await rejects(registry.stop('other', 'long-session'), 'session_not_found');
+  await registry.close();
+  assert.equal(stopped, 1);
+  assert.equal(registry.sessions.size, 0);
+});
