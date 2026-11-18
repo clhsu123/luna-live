@@ -1,6 +1,6 @@
 import { chromium } from 'playwright';
 import assert from 'node:assert/strict';
-const browser=await chromium.launch({headless:true,args:['--no-sandbox']});
+const browser=await chromium.launch({headless:true,args:['--no-sandbox'],...(process.env.CHROMIUM_PATH ? {executablePath:process.env.CHROMIUM_PATH} : {})});
 try {
  const context=await browser.newContext({viewport:{width:1440,height:1000}});
  const page=await context.newPage();const errors=[];page.on('pageerror',e=>errors.push(e.message));
@@ -12,7 +12,8 @@ try {
   await page.goto('http://localhost:18788'+route);
   if(route==='/portraits')await page.waitForURL('**/anam');
   await page.getByRole('link',{name:'Anam 動態人像'}).waitFor();
-  assert.equal(await page.locator('.dh-mode-nav a').count(),2);
+  assert.equal(await page.locator('.dh-mode-nav a').count(),3);
+  await page.getByRole('link',{name:'Luna 動畫原型'}).waitFor();
   assert.equal(await page.locator('.character-picker,.wardrobe-picker,.wardrobe-portrait').count(),0);
   assert.equal(await page.getByRole('link',{name:'20 款動畫造型'}).count(),0);
   await page.setViewportSize({width:390,height:844});
@@ -23,5 +24,5 @@ try {
  await page.getByLabel('對話模式').selectOption('business');
  assert.equal(await page.getByLabel('模擬客戶角色').locator('option').count(),7);
  assert.deepEqual(errors,[]);
- console.log('PASS: only Anam and companion navigation, no wardrobe sections, retired URL fallback and mobile layout');
+ console.log('PASS: Anam, companion and prototype navigation; no wardrobe sections; retired URL fallback and mobile layout');
 } finally {await browser.close();}

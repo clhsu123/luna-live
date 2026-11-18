@@ -1,7 +1,7 @@
 import {chromium} from 'playwright';
 import {readFileSync,writeFileSync} from 'node:fs';
 import assert from 'node:assert/strict';
-const browser=await chromium.launch({headless:true,args:['--no-sandbox','--use-gl=angle','--use-angle=swiftshader','--enable-unsafe-swiftshader']});
+const browser=await chromium.launch({headless:true,args:['--no-sandbox','--use-gl=angle','--use-angle=swiftshader','--enable-unsafe-swiftshader'],...(process.env.CHROMIUM_PATH ? {executablePath:process.env.CHROMIUM_PATH} : {})});
 try{
  const context=await browser.newContext({viewport:{width:1440,height:1000},bypassCSP:true});const page=await context.newPage();const errors=[];page.on('pageerror',e=>errors.push(e.message));
  await page.goto('http://localhost:18788/login');await page.getByLabel('帳號').fill('luna');await page.getByLabel('密碼').fill('local-ui-test');
