@@ -272,3 +272,11 @@ finite video ends. When the existing PCM playback reports audible output, an
 approximate mouth opening appears over the still character and closes during
 silence. This is amplitude-based animation, not phoneme alignment or an accepted
 natural live avatar. It requires visual review with a real response before release.
+
+The current `/companion` visual uses an approximately 30-second, two-junction
+pre-generated Luna motion demonstration. Its source clips show natural native
+mouth motion for their pre-written lines. The browser's fixed-position fake-mouth
+layer and CSS image scaling have been removed. The clip is muted in live
+conversation to avoid conflicting with the independent voice reply. It plays
+once and holds its last frame. `/prototype/` offers the original clip with its
+native audio for review. Neither route supplies live lip sync.
