@@ -277,6 +277,5 @@ The current `/companion` visual uses an approximately 30-second, two-junction
 pre-generated Luna motion demonstration. Its source clips show natural native
 mouth motion for their pre-written lines. The browser's fixed-position fake-mouth
 layer and CSS image scaling have been removed. The clip is muted in live
-conversation to avoid conflicting with the independent voice reply. It plays
-once and holds its last frame. `/prototype/` offers the original clip with its
+conversation to avoid conflicting with the independent voice reply. A six-second generated bridge moves the character from the old ending pose back to the original opening pose. The resulting 36.5-second muted clip loops during the companion session; there may still be small motion discontinuities. `/prototype/` offers the original clip with its
 native audio for review. Neither route supplies live lip sync.

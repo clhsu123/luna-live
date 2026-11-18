@@ -9,13 +9,15 @@ try{
  await page.goto('http://localhost:18788/companion');
  const video=page.locator('.companion-video video');await video.waitFor();
  await page.waitForFunction(()=>document.querySelector('.companion-video video')?.readyState>=2);
- assert.deepEqual(await video.evaluate(v=>({width:v.videoWidth,height:v.videoHeight,loop:v.loop,muted:v.muted})),{width:720,height:1280,loop:false,muted:true});
+ assert.deepEqual(await video.evaluate(v=>({width:v.videoWidth,height:v.videoHeight,loop:v.loop,muted:v.muted})),{width:720,height:1280,loop:true,muted:true});
  assert.equal(await page.locator('.companion-video canvas,.companion-video span').count(),0);
- assert.match(await video.getAttribute('src'),/luna-stitch-demo\.mp4$/);
- assert((await video.evaluate(v=>v.duration))>30);
+ assert.match(await video.getAttribute('src'),/luna-loop\.mp4$/);
+ assert((await video.evaluate(v=>v.duration))>36);
+ await video.evaluate(v=>{v.currentTime=v.duration-0.25;return v.play();});
+ await page.waitForFunction(()=>{const v=document.querySelector('.companion-video video');return v && v.currentTime<2 && !v.paused;},{timeout:5000});
  assert.equal(await page.locator('.wardrobe-picker,.character-picker').count(),0);
  assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
  await page.getByRole('button',{name:'暫停角色動畫'}).click();
  assert(await video.evaluate(v=>v.paused));
- console.log('PASS: Luna anime preview replaces B loops, finite stitched playback without fake mouth, pause control and mobile layout');
+ console.log('PASS: Luna anime preview replaces B loops, continuous stitched playback without fake mouth, pause control and mobile layout');
 }finally{await browser.close();}
