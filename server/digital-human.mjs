@@ -1,3 +1,4 @@
+import { userContextEvents } from './user-context.mjs';
 import { voiceProvider, normalizeVoiceEvent } from './voice-provider.mjs';
 import { companionPrompt, koreanPrompt, businessPrompt } from '../shared/companion-prompt.mjs';
 import { AnamProvider, AnamRelay, anamAvatars } from './anam-provider.mjs';
@@ -77,7 +78,7 @@ export function installDigitalHuman(app, server, { anam = false, portrait = fals
     let microphoneMuted = false; let awaitingVadResponse = false; let vadSpeechItem;
     let record;
     try { record = sessions.get(ticket.user, ticket.id); } catch { client.close(1008); return; }
-    let ai; let avatar; let done = false; let ready = false; let responseId; let itemId; let utterance; let speakingAt; let speechStoppedAt; let generatedMs = 0; let active = false; let listening = false; let lastActivity = Date.now(); let inputBytes = 0; let responseText = ''; let speechGeneration = 0; let speechController;
+    let ai; let avatar; let done = false; let ready = false; let responseId; let itemId; let utterance; let speakingAt; let speechStoppedAt; let generatedMs = 0; let active = false; let listening = false; let inputBytes = 0; let responseText = ''; let speechGeneration = 0; let speechController;
     const tell = data => { if (portrait && data.type.startsWith('anam.')) data = { ...data, type: data.type.replace('anam.', 'portrait.') }; if (client.readyState === WebSocket.OPEN) client.send(JSON.stringify(data)); };
     const send = (ws, data) => { if (ws?.readyState === WebSocket.OPEN && ws.bufferedAmount < 1_000_000) ws.send(JSON.stringify(data)); else throw Error('transport_backpressure'); };
     const cleanup = () => {
@@ -132,9 +133,6 @@ export function installDigitalHuman(app, server, { anam = false, portrait = fals
     const startup = setTimeout(() => fail('startup'), 25_000);
     const heartbeat = setInterval(() => {
       try {
-        if (ready && !active && !utterance && !speechController && !listening && Date.now() - lastActivity >= 45_000) {
-          tell({ type: 'bridge.error', message: '已閒置 45 秒，影像連線已自動結束以節省用量。可以隨時重新開始。' }); cleanup(); return;
-        }
         if (ready) send(avatar, { type: 'session.keep_alive' });
         if (!sessions.sessions.has(ticket.id)) cleanup();
       } catch { fail(); }
@@ -152,10 +150,10 @@ export function installDigitalHuman(app, server, { anam = false, portrait = fals
           ai.on('message', raw => {
             try {
               const e = normalizeVoiceEvent(JSON.parse(raw.toString()));
-              if (e.type === 'session.updated' && !ready) { for (const event of replayEvents(ticket.history)) send(ai, event); ready = true; clearTimeout(startup); tell({ type: 'bridge.ready' }); }
+              if (e.type === 'session.updated' && !ready) { for (const event of [...userContextEvents(process.env.LUNA_USER_CONTEXT), ...replayEvents(ticket.history)]) send(ai, event); ready = true; clearTimeout(startup); tell({ type: 'bridge.ready' }); }
               if (e.type === 'input_audio_buffer.speech_started') {
                 if (automatic && microphoneMuted) return;
-                listening = true; if (automatic) vadSpeechItem = e.item_id; lastActivity = Date.now();
+                listening = true; if (automatic) vadSpeechItem = e.item_id;
                 // Server VAD cancels its own response. Only clear our downstream
                 // TTS/browser/avatar queues; a second response.cancel can race it.
                 interrupt(!automatic);
@@ -167,7 +165,7 @@ export function installDigitalHuman(app, server, { anam = false, portrait = fals
                   if (microphoneMuted || !listening || typeof e.item_id !== 'string' || e.item_id !== vadSpeechItem) return;
                   awaitingVadResponse = true; vadSpeechItem = undefined;
                 }
-                listening = false; speechStoppedAt = Date.now(); lastActivity = Date.now();
+                listening = false; speechStoppedAt = Date.now();
               }
               if (e.type === 'response.created') { awaitingVadResponse = false; if (e.response.id === responseId) return; interrupt(false); responseId = e.response.id; responseText = ''; active = true; generatedMs = 0; itemId = undefined; utterance = undefined; speakingAt = undefined; }
               if (voice.xaiTts && ['response.text.delta', 'response.output_text.delta'].includes(e.type) && e.response_id === responseId) {
@@ -197,7 +195,7 @@ export function installDigitalHuman(app, server, { anam = false, portrait = fals
           speakingAt = Date.now(); tell({ type: 'avatar.speaking', value: true, responseLatencyMs: speechStoppedAt ? Date.now() - speechStoppedAt : null });
         }
         if (['agent.speak_ended', 'agent.speak_interrupted'].includes(e.type) && e.source_event_id === utterance) tell({ type: 'avatar.speaking', value: false });
-        if (e.type === 'agent.speak_ended' && e.source_event_id === utterance) { utterance = undefined; speakingAt = undefined; lastActivity = Date.now(); }
+        if (e.type === 'agent.speak_ended' && e.source_event_id === utterance) { utterance = undefined; speakingAt = undefined; }
         if (e.type === 'error') fail();
       } catch { fail(); }
     });
@@ -209,17 +207,17 @@ export function installDigitalHuman(app, server, { anam = false, portrait = fals
         const e = JSON.parse(raw.toString());
         if (e.type === 'turn.start') {
           if (automatic) return;
-          interrupt(); send(ai, { type: 'input_audio_buffer.clear' }); inputBytes = 0; listening = true; lastActivity = Date.now();
+          interrupt(); send(ai, { type: 'input_audio_buffer.clear' }); inputBytes = 0; listening = true;
         } else if (e.type === 'turn.end') {
           if (automatic) return;
           if (!listening) return;
-          listening = false; lastActivity = Date.now(); speechStoppedAt = Date.now();
+          listening = false; speechStoppedAt = Date.now();
           if (inputBytes < 4800) { send(ai, { type: 'input_audio_buffer.clear' }); tell({ type: 'turn.empty' }); return; }
           send(ai, { type: 'input_audio_buffer.commit' }); send(ai, { type: 'response.create' }); inputBytes = 0;
         } else if (e.type === 'input.mute' && automatic && typeof e.muted === 'boolean') {
           microphoneMuted = e.muted; listening = false; vadSpeechItem = undefined; inputBytes = 0;
           send(ai, { type: 'input_audio_buffer.clear' });
-          lastActivity = Date.now();
+
         } else if (e.type === 'interrupt') interrupt();
         else if (e.type === 'text' && typeof e.text === 'string' && e.text.trim() && e.text.length <= 4000) {
           const clientId = typeof e.client_id === 'string' && /^[a-zA-Z0-9_-]{1,64}$/.test(e.client_id) ? e.client_id : undefined;
@@ -227,7 +225,7 @@ export function installDigitalHuman(app, server, { anam = false, portrait = fals
             tell({ type: 'turn.text_blocked', client_id: clientId, message: '語音回合尚在處理，請稍後再傳送文字。' });
             return;
           }
-          lastActivity = Date.now(); interrupt(); send(ai, { type: 'conversation.item.create', item: { type: 'message', role: 'user', content: [{ type: 'input_text', text: e.text }] } }); send(ai, { type: 'response.create' });
+          interrupt(); send(ai, { type: 'conversation.item.create', item: { type: 'message', role: 'user', content: [{ type: 'input_text', text: e.text }] } }); send(ai, { type: 'response.create' });
           tell({ type: 'text.accepted', client_id: clientId });
         } else throw Error();
       } catch { fail(); }

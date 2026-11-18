@@ -108,8 +108,8 @@ fields are not sent to xAI. The bridge does not manually commit or create a resp
 for VAD events, and does not double-cancel the upstream response on speech start.
 Manual text messages still explicitly request a response. During an active VAD
 utterance or its pending automatic reply, typed sends are rejected nonfatally; the
-draft remains in the input and history is updated only after server acceptance. Existing session/idle
-limits remain; continuous silence does not keep a session alive indefinitely.
+draft remains in the input and history is updated only after server acceptance. The 45-second idle disconnect is removed; Anam sessions still end at ten minutes.
+End the conversation explicitly when finished. Connected silent sessions can consume provider minutes.
 
 Provider contracts checked against:
 - https://developers.openai.com/api/docs/guides/realtime-vad
@@ -136,7 +136,7 @@ Anam receives 24 kHz mono PCM16 audio and returns synchronized video. The AI and
 
 保留原有 `OPENAI_API_KEY`、`OPENAI_REALTIME_MODEL`、`APP_PASSWORD`、`APP_ORIGIN`。儲存後部署，打開 `/anam`。沒有設定角色時會停用開始按鈕。更換動態角色先結束連線；所有角色沿用同瀏覽器共享記憶。
 
-每次 Anam 最多 600 秒，閒置 45 秒自動結束；不自動重連。方案用量以 Anam 帳戶為準，本地限時不等於費用上限。請在 Anam 設定支出上限。Session token 使用 `sessionOptions.dataRetention` 關閉錄影與逐字稿保存，不等同 Enterprise Zero Data Retention。
+每次 Anam 最多 600 秒，不再因閒置 45 秒自動結束；不自動重連。方案用量以 Anam 帳戶為準，本地限時不等於費用上限。請在 Anam 設定支出上限。Session token 使用 `sessionOptions.dataRetention` 關閉錄影與逐字稿保存，不等同 Enterprise Zero Data Retention。
 
 驗收：先確認真正影片出現，再說一句中文，按「我說完了」，確認嘴型和聲音同步；測試短句、連續兩輪、打斷、文字訊息、切換已設定角色、重連帶入記憶和結束後不再播放。程式測試無法取代具有效 key 與 avatar 的真實 WebRTC 驗收。
 
@@ -189,8 +189,7 @@ preferences and stops when the page is hidden. Only the selected sprite is loade
 
 Portrait calls use `/api/portrait`, the same authenticated manual-turn bridge and
 provider configuration, with browser PCM playback. They allocate no Anam or
-LiveAvatar session. OpenAI/xAI usage still incurs provider charges. The same
-180-second session and 45-second idle limits apply. In split mode configure
+LiveAvatar session. OpenAI/xAI usage still incurs provider charges. There is no application lifetime or idle cutoff for portrait calls; end them explicitly. In split mode configure
 `CHAT_PROVIDER=openai` and `CHAT_OUTPUT=xai-tts`; do not change or publish keys.
 
 Regression validation: `npm ci --ignore-scripts && npm run build && npm test`.
@@ -233,3 +232,17 @@ the model and Python dependencies are not shipped to browsers. WebGL is required
 for the talking effect. The source clips have different poses/clothing states;
 short blended transitions cannot guarantee cinematic continuity. Real mobile
 playback and perceived naturalness require visual acceptance.
+
+## Private user background
+
+Optionally set `LUNA_USER_CONTEXT` in Render's server environment to a reviewed
+plain-text personal summary (maximum 8,000 characters). Never commit its value.
+The Anam/portrait/companion bridge sends it once per new conversation as user-role
+background before recent browser history, without generating a reply. Current
+messages/corrections take precedence. The status API and logs do not expose it.
+This single-user deployment shares that profile with anyone who can log in.
+The configured conversation provider receives it; synthesized replies may also
+contain relevant details. It is not a complete ChatGPT memory export or ongoing
+synchronization. Clear the environment value and redeploy to stop injecting it;
+this does not erase browser history or provider-retained data. Existing calls
+must be ended and restarted after an update.

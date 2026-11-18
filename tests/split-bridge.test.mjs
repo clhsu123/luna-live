@@ -11,7 +11,7 @@ for (const portrait of [false, true]) test((portrait ? 'portrait: ' : 'Anam: ') 
   const old = {...process.env};
   const app=express(), server=createServer(app); await new Promise(r=>server.listen(0,'127.0.0.1',r));
   const origin=`http://127.0.0.1:${server.address().port}`;
-  Object.assign(process.env,{APP_ORIGIN:origin,OPENAI_API_KEY:'test',XAI_API_KEY:'test',CHAT_PROVIDER:'openai',CHAT_OUTPUT:'xai-tts'});
+  Object.assign(process.env,{APP_ORIGIN:origin,OPENAI_API_KEY:'test',XAI_API_KEY:'test',CHAT_PROVIDER:'openai',CHAT_OUTPUT:'xai-tts',LUNA_USER_CONTEXT:'I prefer concise explanations.'});
   const sent=[], calls=[], events=[]; let ai, ws, pending;
   const prefix=portrait?'/api/portrait':'/api/anam';
   const audioPrefix=portrait?'portrait':'anam';
@@ -28,6 +28,15 @@ for (const portrait of [false, true]) test((portrait ? 'portrait: ' : 'Anam: ') 
   ws=new WebSocket(origin.replace('http','ws')+prefix+'/bridge?ticket='+session.ticket,{origin,headers:{Cookie:cookie}});
   ws.on('message',raw=>events.push(JSON.parse(raw)));await once(ws,'open');await until(()=>events.some(e=>e.type==='bridge.ready'));
   assert.deepEqual(sent[0].session.output_modalities,['text']);
+  assert.equal(sent.filter(e=>e.item?.content?.[0]?.text?.includes('I prefer concise explanations.')).length,1);
+  assert.equal(sent.some(e=>e.type==='response.create'),false);
+  // Advance wall-clock idle time beyond the old cutoff, then run a real heartbeat.
+  t.mock.timers.enable({apis:['Date'],now:Date.now()});
+  t.mock.timers.tick(60_000);
+  await pause(5200);
+  assert.equal(ws.readyState,WebSocket.OPEN);
+  assert.equal(events.some(e=>e.type==='bridge.error'),false);
+  t.mock.timers.reset();
   const emit=e=>ai.emit('message',JSON.stringify(e));
   const response=(id,text,status='completed')=>{emit({type:'response.created',response:{id}});emit({type:'response.output_text.delta',response_id:id,delta:text});emit({type:'response.done',response:{id,status}});};
   ws.send(JSON.stringify({type:'turn.start'}));ws.send(Buffer.alloc(4800));ws.send(JSON.stringify({type:'turn.end'}));await until(()=>sent.some(e=>e.type==='input_audio_buffer.commit'));
