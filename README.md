@@ -261,3 +261,8 @@ Luna first frame and requested Eve voice; 6 seconds, 720x1280, 24 fps. Observed
 completion latency was approximately 45.2 seconds, not realtime. The exact spoken
 content and phoneme alignment remain unverified. Framing is wider and blinking
 more frequent than desired. No personal context or credentials are in this asset.
+
+The `/companion` visual now shows the same generated anime Luna as `/prototype/`.
+The six-second sample plays muted once and remains on its final frame; chat/TTS
+continues separately. It does not provide live lip sync. Archived B loops and mouth
+tracks remain in the repo for history, but are not used by the active companion view.
