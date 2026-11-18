@@ -266,3 +266,9 @@ The `/companion` visual now shows the same generated anime Luna as `/prototype/`
 The six-second sample plays muted once and remains on its final frame; chat/TTS
 continues separately. It does not provide live lip sync. Archived B loops and mouth
 tracks remain in the repo for history, but are not used by the active companion view.
+
+The companion prototype now applies a very small idle breathing motion after the
+finite video ends. When the existing PCM playback reports audible output, an
+approximate mouth opening appears over the still character and closes during
+silence. This is amplitude-based animation, not phoneme alignment or an accepted
+natural live avatar. It requires visual review with a real response before release.
