@@ -92,7 +92,7 @@ try {
     page.waitForURL(`${origin}/`),
     page.getByRole('button', { name: '登入', exact: true }).click(),
   ]);
-  await page.goto(`${origin}/portraits`);
+  await page.goto(`${origin}/companion`);
   const turnMode = page.getByLabel('說話方式', { exact: true });
   const input = page.getByLabel('文字訊息', { exact: true });
   const send = page.getByRole('button', { name: '傳送', exact: true });

@@ -246,3 +246,7 @@ contain relevant details. It is not a complete ChatGPT memory export or ongoing
 synchronization. Clear the environment value and redeploy to stop injecting it;
 this does not erase browser history or provider-retained data. Existing calls
 must be ended and restarted after an update.
+
+## Current appearance navigation
+
+Only Anam and Luna B companion are selectable. The 20-style page and four-face/eight-outfit picker are retired from the active UI; old `/portraits` bookmarks redirect to `/anam`. Anam selects the configured `luna-office` mapping (or the first configured mapping), ignoring old wardrobe preferences. Archived assets remain for rollback; companion audio and controls are retained.
