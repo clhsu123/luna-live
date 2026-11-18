@@ -250,3 +250,14 @@ must be ended and restarted after an update.
 ## Current appearance navigation
 
 Only Anam and Luna B companion are selectable. The 20-style page and four-face/eight-outfit picker are retired from the active UI; old `/portraits` bookmarks redirect to `/anam`. Anam selects the configured `luna-office` mapping (or the first configured mapping), ignoring old wardrobe preferences. Archived assets remain for rollback; companion audio and controls are retained.
+
+## Luna generated-video prototype (/prototype/)
+
+Authenticated, isolated preview of a single user-authorized generated adult Luna
+sample. Native controls play the original generated audio and video together;
+there is no autoplay, loop, API request, microphone session or separate TTS.
+Anam and Luna B remain available. Source: grok-imagine-video-1.5 with an AI-created
+Luna first frame and requested Eve voice; 6 seconds, 720x1280, 24 fps. Observed
+completion latency was approximately 45.2 seconds, not realtime. The exact spoken
+content and phoneme alignment remain unverified. Framing is wider and blinking
+more frequent than desired. No personal context or credentials are in this asset.
