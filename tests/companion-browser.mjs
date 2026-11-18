@@ -7,10 +7,13 @@ try{
  await page.getByLabel('帳號').fill('luna');await page.getByLabel('密碼').fill('local-ui-test');
  await Promise.all([page.waitForURL('http://localhost:18788/'),page.getByRole('button',{name:'登入',exact:true}).click()]);
  await page.goto('http://localhost:18788/companion');
- const video=page.locator('.companion-video video');await video.waitFor();
+ const video=page.locator('.companion-video video').first();await video.waitFor();
  await page.waitForFunction(()=>document.querySelector('.companion-video video')?.readyState>=2);
  assert.deepEqual(await video.evaluate(v=>({width:v.videoWidth,height:v.videoHeight,loop:v.loop,muted:v.muted})),{width:720,height:1280,loop:true,muted:true});
  assert.equal(await page.locator('.companion-video canvas,.companion-video span').count(),0);
+ const talk=page.locator('.companion-video video').nth(1);await talk.waitFor();
+ assert.match(await talk.getAttribute('src'),/luna-speaking\.mp4$/);
+ assert.equal(await talk.getAttribute('aria-hidden'),'true');
  assert.match(await video.getAttribute('src'),/luna-loop\.mp4$/);
  assert((await video.evaluate(v=>v.duration))>36);
  await video.evaluate(v=>{v.currentTime=v.duration-0.25;return v.play();});

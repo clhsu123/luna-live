@@ -47,3 +47,5 @@
  .dh-panel form{padding:10px;gap:8px}.dh-messages{padding:8px 16px;-webkit-overflow-scrolling:touch}
  .dh-keyboard-open .dh-controls{display:none}
 }
+
+.dh-korean-line{margin:8px 0}.dh-korean-line p{margin:2px 0}.dh-korean-translation{color:#b6d9d1;font-size:.92em;padding-left:10px;border-left:2px solid #8dc5b3}

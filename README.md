@@ -279,3 +279,18 @@ mouth motion for their pre-written lines. The browser's fixed-position fake-mout
 layer and CSS image scaling have been removed. The clip is muted in live
 conversation to avoid conflicting with the independent voice reply. A six-second generated bridge moves the character from the old ending pose back to the original opening pose. The resulting 36.5-second muted clip loops during the companion session; there may still be small motion discontinuities. `/prototype/` offers the original clip with its
 native audio for review. Neither route supplies live lip sync.
+
+## Speaking motion and Korean sentence translations
+
+The companion switches from the muted listening clip to a separate muted,
+generated speaking clip while actual response audio is playing, then returns to
+listening. It is approximate visual speech, not phoneme-accurate lip sync; live
+TTS remains the only audible voice. The speaking clip never contributes audio.
+
+In Korean practice, completed assistant transcripts are split at sentence
+punctuation. Each Korean sentence receives its own Traditional Chinese
+translation below it. The authenticated backend sends only those Korean
+sentences to OpenAI `gpt-4o-mini` (or `KOREAN_TRANSLATION_MODEL`) and validates
+one translation per sentence. A failed translation is shown as unavailable,
+not fabricated. The request uses the existing `OPENAI_API_KEY`; no key is sent
+to the browser. Streaming text displays while translations are pending.

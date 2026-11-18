@@ -7,6 +7,7 @@ import { CompanionVideo } from './CompanionVideo';
 import { PcmPlayback } from '../shared/pcm-playback.mjs';
 import { useSharedMemory, getMemory, memoryStorageFailed } from './sharedMemory';
 import { normalizeHistory } from '../shared/memory.mjs';
+import { koreanSentences, isKoreanSentence } from '../shared/korean-sentences.mjs';
 type TurnMode = 'manual' | 'automatic';
 type Mode = 'companion' | 'korean' | 'business';
 type Entry = { id: string; role: 'user' | 'assistant'; text: string; time: string };
@@ -57,6 +58,23 @@ export default function DigitalHuman({ anam = false, portrait = false, companion
   const [error, setError] = useState(''); const [input, setInput] = useState('');
   const [muted, setMuted] = useState(false); const [subtitles, setSubtitles] = useState(true);
   const [speaking, setSpeaking] = useState(false); const [entries, setEntries] = useSharedMemory();
+  const [koreanTranslations,setKoreanTranslations]=useState<Record<string,{text:string;items:string[]|null;loading:boolean}>>({});
+  const translationRequests=useRef(new Set<string>());
+  async function translateEntry(id:string,entryText:string) {
+    const sentences=koreanSentences(entryText).filter(isKoreanSentence);
+    if(!sentences.length)return;
+    const requestKey=id+'\n'+entryText;
+    if(translationRequests.current.has(requestKey))return;
+    translationRequests.current.add(requestKey);
+    setKoreanTranslations(prev=>({...prev,[id]:{text:entryText,items:null,loading:true}}));
+    try {
+      const result=await request<{translations:string[]}>('/api/korean/translations',{sentences});
+      setKoreanTranslations(prev=>({...prev,[id]:{text:entryText,items:result.translations,loading:false}}));
+    }catch{
+      setKoreanTranslations(prev=>({...prev,[id]:{text:entryText,items:null,loading:false}}));
+    }
+  }
+  useEffect(()=>{if(mode==='korean')entries.filter(e=>e.role==='assistant').slice(-10).forEach(e=>{void translateEntry(e.id,e.text);});},[mode]);
   // The single configured Luna avatar must not depend on retired wardrobe storage.
   const characterId = config?.characters?.includes('luna-office') ? 'luna-office' : config?.characters?.[0] || 'luna-office';
   const [latency, setLatency] = useState<number>(); const [videoReady, setVideoReady] = useState(false);
@@ -194,6 +212,7 @@ export default function DigitalHuman({ anam = false, portrait = false, companion
           if (e.type === 'avatar.speaking') { if (!portrait) setSpeaking(e.value); if (typeof e.responseLatencyMs === 'number') setLatency(e.responseLatencyMs); }
           if (e.type === 'conversation.item.input_audio_transcription.completed') setEntries(prev => [...prev.filter(entry => entry.id !== e.item_id), { id: e.item_id, role: 'user', text: e.transcript, time: '' }]);
           if (e.type === 'response.output_audio_transcript.delta' || e.type === 'response.output_audio_transcript.done') {
+            if(e.type.endsWith('.done') && mode==='korean' && typeof e.transcript==='string')void translateEntry(e.response_id,e.transcript);
             setEntries(prev => {
               const id = e.response_id; const old = prev.find(x => x.id === id);
               const next: Entry = { id, role: 'assistant', time: '', text: e.type.endsWith('.done') ? e.transcript : (old?.text || '') + e.delta };
@@ -255,16 +274,16 @@ export default function DigitalHuman({ anam = false, portrait = false, companion
     <div className="dh-size-controls" role="group" aria-label="人像大小"><span>視窗大小 · 完整上半身</span>{([['small', '小'], ['medium', '中'], ['large', '大']] as const).map(([size, label]) => <button key={size} type="button" aria-pressed={avatarSize === size} onClick={() => changeAvatarSize(size)}>{label}</button>)}</div>
     <main className={`dh-layout dh-size-${avatarSize}`}><section className="dh-stage" aria-label={portrait ? "動畫造型" : "數位人影片"}>
       <div className="dh-status" role="status"><i className={active ? 'on' : ''}/>{status === 'connected' ? speaking ? anam ? 'Luna 語音回覆中' : 'Luna 正在說話' : turnMode === 'automatic' ? muted ? '麥克風已靜音' : recordingNow ? '正在聽你說話' : '自然對話 · 可以直接說話' : recordingNow ? '收音中 · 說完請按按鈕' : '已連線 · 請按開始說話' : status === 'connecting' ? '連線中' : status === 'reconnecting' ? '重新連線中' : '尚未連線'}</div>
-      <div className="dh-video-frame" style={companion ? {aspectRatio:'9 / 16'} : undefined}>{portrait && <CompanionVideo paused={motionPaused} getLevel={()=>pcmPlayback.current?.mouthLevel() ?? 0}/>}<video hidden={portrait} id="luna-avatar-video" ref={video} autoPlay playsInline muted={!anam} onLoadedMetadata={() => { void video.current?.play().catch(() => setPlaybackBlocked(true)); }} onPlaying={() => { setVideoReady(true); setPlaybackBlocked(false); }} />
+      <div className="dh-video-frame" style={companion ? {aspectRatio:'9 / 16'} : undefined}>{portrait && <CompanionVideo paused={motionPaused} speaking={speaking} getLevel={()=>pcmPlayback.current?.mouthLevel() ?? 0}/>}<video hidden={portrait} id="luna-avatar-video" ref={video} autoPlay playsInline muted={!anam} onLoadedMetadata={() => { void video.current?.play().catch(() => setPlaybackBlocked(true)); }} onPlaying={() => { setVideoReady(true); setPlaybackBlocked(false); }} />
       {!portrait && !videoReady && <div className="dh-placeholder"><span className="dh-orb">L</span><h1>今天，讓我陪你。</h1><p>{active ? '正在建立即時影像連線…' : "開始對話，和 Luna 分享你的今天。"}</p></div>}{playbackBlocked && <button className="dh-play-overlay" onClick={enablePlayback}>點一下啟用影音</button>}</div>
-      <div className="dh-caption">{companion ? "Luna 預生成動作演示 · 對話語音無同步嘴型" : portrait ? "角色逐格動畫 · 無語音對嘴" : anam ? "Luna · 每次對話最多 10 分鐘" : config?.sandbox ? 'SANDBOX · Wayne 測試角色 · 約 60 秒' : 'LUNA · AI 數位人'}{latency !== undefined && <small>伺服器語音結束 → avatar 開口事件：{latency} ms（非端到端量測）</small>}</div>
+      <div className="dh-caption">{companion ? "Luna 動畫陪伴 · 回覆時切換說話動作（非逐字對嘴）" : portrait ? "角色逐格動畫 · 無語音對嘴" : anam ? "Luna · 每次對話最多 10 分鐘" : config?.sandbox ? 'SANDBOX · Wayne 測試角色 · 約 60 秒' : 'LUNA · AI 數位人'}{latency !== undefined && <small>伺服器語音結束 → avatar 開口事件：{latency} ms（非端到端量測）</small>}</div>
     <footer className="dh-controls">{turnMode === 'manual' && <button className="dh-primary" disabled={status !== 'connected' || finishing} aria-pressed={recordingNow} onClick={() => { void toggleTurn(); }}>{finishing ? '送出中…' : recordingNow ? '我說完了' : '開始說話'}</button>}<button className="dh-primary" onClick={() => { if (active) void stop(); else void start(); }} disabled={!active && (!config?.configured || (anam && !config?.characters?.includes(characterId)))}>{active ? '結束對話' : '開始對話'}</button><button aria-pressed={muted} onClick={toggleMute} disabled={!active}>{muted ? '開啟麥克風' : '靜音'}</button><button disabled={status !== 'connected'} onClick={() => socket.current?.send(JSON.stringify({ type: 'interrupt' }))}>打斷 Luna</button><button aria-pressed={subtitles} onClick={() => setSubtitles(!subtitles)}>逐字稿 {subtitles ? '開' : '關'}</button><button disabled={!active} onClick={enablePlayback}>啟用播放</button></footer>
     <p className="dh-footnote">{turnMode === 'automatic' ? '開始對話後持續收音；停頓後自動回覆，直接開口可打斷。按靜音暫停收音，按結束對話關閉麥克風。' : '按「開始說話」收音，中途可停頓；按「我說完了」才會回答。'}</p>
     </section><aside className="dh-panel">
       <div className="dh-panel-head"><p className="dh-eyebrow">YOUR CONVERSATION</p><h2>與 Luna 對話</h2><label>對話模式<select value={mode} disabled={active} onChange={e => setMode(e.target.value as Mode)}>{Object.entries(modes).map(([key, title]) => <option key={key} value={key}>{title}</option>)}</select></label>
       <label>說話方式<select aria-label="說話方式" value={turnMode} disabled={active} onChange={e => changeTurnMode(e.target.value as TurnMode)}><option value="manual">按鈕控制（我說完才回答）</option><option value="automatic">自然對話（停頓後自動回覆）</option></select><small>{active ? '結束對話後可切換說話方式。' : '自然對話會持續收音；使用耳機可減少回音誤觸。'}</small></label>
       {mode === 'business' && <label>模擬客戶角色<select value={role} disabled={active} onChange={e => setRole(e.target.value)}>{config?.roles.map(r => <option key={r}>{r}</option>)}</select><small>虛構演練，不代表真實客戶情報。</small></label>}
-      </div><div className="dh-messages" ref={messages} onScroll={e => { const el = e.currentTarget; followMessages.current = el.scrollHeight - el.clientHeight - el.scrollTop < 80; }} aria-live="polite">{entries.length === 0 && <p className="dh-empty">支援繁體中文、한국어、English。<br/>對話記憶保存在此瀏覽器。</p>}{subtitles && entries.map(e => <article key={e.id} className={e.role}><b>{e.role === 'user' ? '你' : 'Luna'}</b><p>{e.text}</p></article>)}</div>
+      </div><div className="dh-messages" ref={messages} onScroll={e => { const el = e.currentTarget; followMessages.current = el.scrollHeight - el.clientHeight - el.scrollTop < 80; }} aria-live="polite">{entries.length === 0 && <p className="dh-empty">支援繁體中文、한국어、English。<br/>對話記憶保存在此瀏覽器。</p>}{subtitles && entries.map(e => <article key={e.id} className={e.role}><b>{e.role === 'user' ? '你' : 'Luna'}</b>{mode==='korean'&&e.role==='assistant'&&koreanSentences(e.text).some(isKoreanSentence) ? <div className="dh-korean-lines">{koreanSentences(e.text).map((sentence,index)=>{const koreanIndex=koreanSentences(e.text).slice(0,index).filter(isKoreanSentence).length;const translation=koreanTranslations[e.id];return <div key={index} className="dh-korean-line"><p>{sentence}</p>{isKoreanSentence(sentence)&&<p className="dh-korean-translation" lang="zh-Hant">{translation?.text===e.text ? translation.loading ? '翻譯中…' : translation.items?.[koreanIndex]||'翻譯暫時無法載入' : '翻譯中…'}</p>}</div>;})}</div> : <p>{e.text}</p>}</article>)}</div>
       <form onSubmit={e => { e.preventDefault(); text(); }}><input aria-label="文字訊息" maxLength={4000} enterKeyHint="send" autoComplete="off" value={input} onChange={e => setInput(e.target.value)} placeholder="想跟我說什麼…" disabled={status !== 'connected'}/><button disabled={status !== 'connected' || textSending || (turnMode === 'automatic' && recordingNow) || !input.trim()}>{textSending ? '傳送中…' : '傳送'}</button></form>
     </aside></main>
     {!config?.configured && config && <p className="dh-notice">即時人像尚未完成連線設定。{anam && "請在 Render 設定 ANAM_API_KEY，並將 Eric's agent 的 Avatar ID 填入 ANAM_AVATAR_ID。"}</p>}

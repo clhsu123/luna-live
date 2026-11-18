@@ -21,6 +21,17 @@ try {
   await page.screenshot({path:'artifacts/clean-'+route.slice(1)+'-mobile.png',fullPage:true});
   await page.setViewportSize({width:1440,height:1000});
  }
+ await page.route('**/api/korean/translations',async route=>{
+  const body=route.request().postDataJSON();
+  assert.deepEqual(body.sentences,['오늘 어땠어요?','괜찮아요?']);
+  await route.fulfill({json:{translations:['今天過得如何？','還好嗎？']}});
+ });
+ await page.evaluate(()=>localStorage.setItem('luna.shared-memory.v1',JSON.stringify([{id:'korean-fixture',role:'assistant',text:'오늘 어땠어요? 괜찮아요?',time:''}])));
+ await page.reload();
+ await page.getByLabel('對話模式').selectOption('korean');
+ await page.getByText('今天過得如何？').waitFor();
+ assert.equal(await page.locator('article.assistant .dh-korean-line').count(),2);
+ assert.deepEqual(await page.locator('article.assistant .dh-korean-translation').allTextContents(),['今天過得如何？','還好嗎？']);
  await page.getByLabel('對話模式').selectOption('business');
  assert.equal(await page.getByLabel('模擬客戶角色').locator('option').count(),7);
  assert.deepEqual(errors,[]);
