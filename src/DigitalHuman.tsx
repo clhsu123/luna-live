@@ -245,7 +245,7 @@ export default function DigitalHuman({ anam = false, portrait = false, companion
   const active = status !== 'idle';
   return <div className={`dh-app${keyboardOpen ? ' dh-keyboard-open' : ''}`}>
     <header className="dh-header"><a href="/">LUNA<span>LIVE</span></a><span>即時 AI 對話</span><span>你的 AI 女友 · 25+</span></header>
-    <nav className="dh-mode-nav" aria-label="人像模式"><a href="/anam" aria-current={!portrait ? 'page' : undefined}>Anam 動態人像</a><a href="/companion" aria-current={companion ? 'page' : undefined}>Luna B 動畫陪伴</a><a href="/prototype/">Luna 動畫原型</a></nav>
+    <nav className="dh-mode-nav" aria-label="人像模式"><a href="/anam" aria-current={!portrait ? 'page' : undefined}>Anam 動態人像</a><a href="/companion" aria-current={companion ? 'page' : undefined}>Luna B 動畫陪伴</a></nav>
     {portrait && <><div className="dh-size-controls"><button type="button" aria-pressed={motionPaused} onClick={()=>setMotionChoice(!motionPaused)}>{motionPaused ? '播放角色動畫' : '暫停角色動畫'}</button>{motionChoice !== null && <button type="button" onClick={()=>setMotionChoice(null)}>依照系統動畫設定</button>}<small role="status">{motionChoice === null && systemReducedMotion ? '系統已減少動態效果；按播放可啟用本頁動畫。' : motionPaused ? '角色動畫已暫停' : '角色動畫播放中。'}</small></div></>}
     <details className="dh-characters dh-memory"><summary>對話記憶 · {entries.length} 則</summary>
       <p className="memory-note">對話記憶：{entries.length} 則 · 保存在此瀏覽器，重新連線可接續。
