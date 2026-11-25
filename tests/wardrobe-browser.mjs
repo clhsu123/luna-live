@@ -32,6 +32,20 @@ try {
  await page.getByText('今天過得如何？').waitFor();
  assert.equal(await page.locator('article.assistant .dh-korean-line').count(),2);
  assert.deepEqual(await page.locator('article.assistant .dh-korean-translation').allTextContents(),['今天過得如何？','還好嗎？']);
+ await page.route('**/api/korean/word',async route=>{
+  const body=route.request().postDataJSON();
+  assert.equal(body.word,'오늘');
+  await route.fulfill({json:{ko:'오늘',zh:'今天',hanja:''}});
+ });
+ await page.getByRole('button',{name:'오늘，查詢單字'}).click();
+ await page.getByText('今天', {exact:true}).waitFor();
+ await page.getByRole('button',{name:'加入單字庫'}).click();
+ assert.equal(await page.getByRole('heading',{name:/韓文單字庫/}).count(),1);
+ await page.getByRole('button',{name:'單字測驗'}).click();
+ await page.getByRole('button',{name:'顯示答案'}).click();
+ await page.getByRole('button',{name:'答對了'}).click();
+ await page.reload();
+ await page.getByText('答對 1 · 待複習 0').waitFor();
  await page.getByLabel('對話模式').selectOption('business');
  assert.equal(await page.getByLabel('模擬客戶角色').locator('option').count(),7);
  assert.deepEqual(errors,[]);
