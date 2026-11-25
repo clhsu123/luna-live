@@ -59,6 +59,52 @@ export default function DigitalHuman({ anam = false, portrait = false, companion
   const [error, setError] = useState(''); const [input, setInput] = useState('');
   const [muted, setMuted] = useState(false); const [subtitles, setSubtitles] = useState(true);
   const [speaking, setSpeaking] = useState(false); const [entries, setEntries] = useSharedMemory();
+  const [replaying, setReplaying] = useState<string | null>(null);
+  const replayGeneration = useRef(0);
+  const replayController = useRef<AbortController | null>(null);
+  const replayContext = useRef<AudioContext | null>(null);
+  const replayPcm = useRef<PcmPlayback | null>(null);
+  const replayUsingAnam = useRef(false);
+  function stopReplay() {
+    replayGeneration.current++;
+    replayController.current?.abort(); replayController.current = null;
+    if (replayUsingAnam.current) { try { anamClient.current?.interruptPersona(); } catch { /* Session may have closed. */ } replayUsingAnam.current = false; }
+    replayPcm.current?.clear(); replayPcm.current = null;
+    void replayContext.current?.close().catch(() => {}); replayContext.current = null;
+    setReplaying(null);
+  }
+  async function replayReply(id: string, reply: string) {
+    if (replaying) { stopReplay(); return; }
+    if (speaking || recordingNow) return;
+    stopReplay(); setError(''); setReplaying(id);
+    const generation = replayGeneration.current;
+    const controller = new AbortController(); replayController.current = controller;
+    const viaAnam = anam && status === 'connected' && Boolean(anamAudio.current);
+    try {
+      // Create/resume the local audio context in the click gesture before awaiting TTS.
+      if (!viaAnam) { replayContext.current = new AudioContext(); await replayContext.current.resume(); }
+      const response = await fetch('/api/replay-tts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: reply }), signal: controller.signal });
+      if (!response.ok) throw Error(response.status === 429 ? '重播太頻繁，請稍後再試。' : '暫時無法重播語音。');
+      const result = await response.json() as { audio: string; duration: number };
+      if (generation !== replayGeneration.current) return;
+      if (viaAnam && anamAudio.current) {
+        replayUsingAnam.current = true;
+        const raw = atob(result.audio);
+        for (let offset = 0; offset < raw.length; offset += 12000) {
+          if (generation !== replayGeneration.current) return;
+          anamAudio.current.sendAudioChunk(btoa(raw.slice(offset, offset + 12000)));
+          await new Promise(resolve => setTimeout(resolve, 250));
+        }
+        anamAudio.current.endSequence();
+        if (generation === replayGeneration.current) { replayUsingAnam.current = false; setReplaying(null); }
+      } else if (replayContext.current) {
+        replayPcm.current = new PcmPlayback(replayContext.current, value => { if (!value && generation === replayGeneration.current) { setReplaying(null); void replayContext.current?.close().catch(() => {}); replayContext.current = null; replayPcm.current = null; } });
+        replayPcm.current.append(result.audio); replayPcm.current.end();
+      } else throw Error('對話已中斷，請重新連線後再試。');
+    } catch (error) {
+      if (generation === replayGeneration.current && !controller.signal.aborted) { stopReplay(); setError(error instanceof Error ? error.message : '暫時無法重播語音。'); }
+    }
+  }
   const [koreanTranslations,setKoreanTranslations]=useState<Record<string,{text:string;items:string[]|null;loading:boolean}>>({});
   const translationRequests=useRef(new Set<string>());
   async function translateEntry(id:string,entryText:string) {
@@ -94,6 +140,7 @@ export default function DigitalHuman({ anam = false, portrait = false, companion
     const value = await res.json(); if (!res.ok) throw Error(value.error || `Request failed: ${res.status}`); return value;
   }
   async function stop() {
+    stopReplay();
     clearPcm(); pcmPlayback.current = undefined; pendingText.current = undefined; setTextSending(false); recording.current = false; setRecordingNow(false); setFinishing(false);
     generation.current++; busy.current = false;
     const previousAnam = anamClient.current; anamClient.current = undefined; anamAudio.current = undefined;
@@ -220,7 +267,8 @@ export default function DigitalHuman({ anam = false, portrait = false, companion
               return old ? prev.map(x => x.id === id ? next : x) : [...prev, next];
             });
           }
-          if (e.type === 'input_audio_buffer.speech_started') { setSpeaking(false); if (turnMode === 'automatic' && !muteRef.current) setRecordingNow(true); }
+          if (e.type === 'response.created') stopReplay();
+          if (e.type === 'input_audio_buffer.speech_started') { stopReplay(); setSpeaking(false); if (turnMode === 'automatic' && !muteRef.current) setRecordingNow(true); }
           if (e.type === 'input_audio_buffer.speech_stopped' && turnMode === 'automatic') setRecordingNow(false);
         } catch { void stop(); setError('影像音訊傳送失敗，請重新連線。'); }
       };
@@ -275,7 +323,7 @@ export default function DigitalHuman({ anam = false, portrait = false, companion
     <div className="dh-size-controls" role="group" aria-label="人像大小"><span>視窗大小 · 完整上半身</span>{([['small', '小'], ['medium', '中'], ['large', '大']] as const).map(([size, label]) => <button key={size} type="button" aria-pressed={avatarSize === size} onClick={() => changeAvatarSize(size)}>{label}</button>)}</div>
     <main className={`dh-layout dh-size-${avatarSize}`}><section className="dh-stage" aria-label={portrait ? "動畫造型" : "數位人影片"}>
       <div className="dh-status" role="status"><i className={active ? 'on' : ''}/>{status === 'connected' ? speaking ? anam ? 'Luna 語音回覆中' : 'Luna 正在說話' : turnMode === 'automatic' ? muted ? '麥克風已靜音' : recordingNow ? '正在聽你說話' : '自然對話 · 可以直接說話' : recordingNow ? '收音中 · 說完請按按鈕' : '已連線 · 請按開始說話' : status === 'connecting' ? '連線中' : status === 'reconnecting' ? '重新連線中' : '尚未連線'}</div>
-      <div className="dh-video-frame" style={companion ? {aspectRatio:'9 / 16'} : undefined}>{portrait && <CompanionVideo paused={motionPaused} speaking={speaking} getLevel={()=>pcmPlayback.current?.mouthLevel() ?? 0}/>}<video hidden={portrait} id="luna-avatar-video" ref={video} autoPlay playsInline muted={!anam} onLoadedMetadata={() => { void video.current?.play().catch(() => setPlaybackBlocked(true)); }} onPlaying={() => { setVideoReady(true); setPlaybackBlocked(false); }} />
+      <div className="dh-video-frame" style={companion ? {aspectRatio:'9 / 16'} : undefined}>{portrait && <CompanionVideo paused={motionPaused} speaking={speaking || Boolean(replaying)} getLevel={()=>pcmPlayback.current?.mouthLevel() ?? 0}/>}<video hidden={portrait} id="luna-avatar-video" ref={video} autoPlay playsInline muted={!anam} onLoadedMetadata={() => { void video.current?.play().catch(() => setPlaybackBlocked(true)); }} onPlaying={() => { setVideoReady(true); setPlaybackBlocked(false); }} />
       {!portrait && !videoReady && <div className="dh-placeholder"><span className="dh-orb">L</span><h1>今天，讓我陪你。</h1><p>{active ? '正在建立即時影像連線…' : "開始對話，和 Luna 分享你的今天。"}</p></div>}{playbackBlocked && <button className="dh-play-overlay" onClick={enablePlayback}>點一下啟用影音</button>}</div>
       <div className="dh-caption">{companion ? "Luna 動畫陪伴 · 回覆時切換說話動作（非逐字對嘴）" : portrait ? "角色逐格動畫 · 無語音對嘴" : anam ? "Luna · 每次對話最多 10 分鐘" : config?.sandbox ? 'SANDBOX · Wayne 測試角色 · 約 60 秒' : 'LUNA · AI 數位人'}{latency !== undefined && <small>伺服器語音結束 → avatar 開口事件：{latency} ms（非端到端量測）</small>}</div>
     <footer className="dh-controls">{turnMode === 'manual' && <button className="dh-primary" disabled={status !== 'connected' || finishing} aria-pressed={recordingNow} onClick={() => { void toggleTurn(); }}>{finishing ? '送出中…' : recordingNow ? '我說完了' : '開始說話'}</button>}<button className="dh-primary" onClick={() => { if (active) void stop(); else void start(); }} disabled={!active && (!config?.configured || (anam && !config?.characters?.includes(characterId)))}>{active ? '結束對話' : '開始對話'}</button><button aria-pressed={muted} onClick={toggleMute} disabled={!active}>{muted ? '開啟麥克風' : '靜音'}</button><button disabled={status !== 'connected'} onClick={() => socket.current?.send(JSON.stringify({ type: 'interrupt' }))}>打斷 Luna</button><button aria-pressed={subtitles} onClick={() => setSubtitles(!subtitles)}>逐字稿 {subtitles ? '開' : '關'}</button><button disabled={!active} onClick={enablePlayback}>啟用播放</button></footer>
@@ -284,7 +332,7 @@ export default function DigitalHuman({ anam = false, portrait = false, companion
       <div className="dh-panel-head"><p className="dh-eyebrow">YOUR CONVERSATION</p><h2>與 Luna 對話</h2><label>對話模式<select value={mode} disabled={active} onChange={e => setMode(e.target.value as Mode)}>{Object.entries(modes).map(([key, title]) => <option key={key} value={key}>{title}</option>)}</select></label>
       <label>說話方式<select aria-label="說話方式" value={turnMode} disabled={active} onChange={e => changeTurnMode(e.target.value as TurnMode)}><option value="manual">按鈕控制（我說完才回答）</option><option value="automatic">自然對話（停頓後自動回覆）</option></select><small>{active ? '結束對話後可切換說話方式。' : '自然對話會持續收音；使用耳機可減少回音誤觸。'}</small></label>
       {mode === 'business' && <label>模擬客戶角色<select value={role} disabled={active} onChange={e => setRole(e.target.value)}>{config?.roles.map(r => <option key={r}>{r}</option>)}</select><small>虛構演練，不代表真實客戶情報。</small></label>}
-      </div><div className="dh-messages" ref={messages} onScroll={e => { const el = e.currentTarget; followMessages.current = el.scrollHeight - el.clientHeight - el.scrollTop < 80; }} aria-live="polite">{entries.length === 0 && <p className="dh-empty">支援繁體中文、한국어、English。<br/>對話記憶保存在此瀏覽器。</p>}{subtitles && entries.map(e => <article key={e.id} className={e.role}><b>{e.role === 'user' ? '你' : 'Luna'}</b>{mode==='korean'&&e.role==='assistant'&&koreanSentences(e.text).some(isKoreanSentence) ? <div className="dh-korean-lines">{koreanSentences(e.text).map((sentence,index)=>{const koreanIndex=koreanSentences(e.text).slice(0,index).filter(isKoreanSentence).length;const translation=koreanTranslations[e.id];return <div key={index} className="dh-korean-line"><p>{isKoreanSentence(sentence) ? <KoreanText text={sentence} /> : sentence}</p>{isKoreanSentence(sentence)&&<p className="dh-korean-translation" lang="zh-Hant">{translation?.text===e.text ? translation.loading ? '翻譯中…' : translation.items?.[koreanIndex]||'翻譯暫時無法載入' : '翻譯中…'}</p>}</div>;})}</div> : <p>{mode==='korean'&&isKoreanSentence(e.text) ? <KoreanText text={e.text} /> : e.text}</p>}</article>)}</div>
+      </div><div className="dh-messages" ref={messages} onScroll={e => { const el = e.currentTarget; followMessages.current = el.scrollHeight - el.clientHeight - el.scrollTop < 80; }} aria-live="polite">{entries.length === 0 && <p className="dh-empty">支援繁體中文、한국어、English。<br/>對話記憶保存在此瀏覽器。</p>}{subtitles && entries.map(e => <article key={e.id} className={e.role}><div className="dh-entry-head"><b>{e.role === 'user' ? '你' : 'Luna'}</b>{e.role === 'assistant' && e.text.trim() && <button type="button" aria-label={replaying === e.id ? '停止重播 Luna 回覆' : '重播 Luna 回覆'} disabled={speaking || recordingNow || (Boolean(replaying) && replaying !== e.id)} onClick={() => { void replayReply(e.id, e.text); }}>{replaying === e.id ? '停止重播' : '重播語音'}</button>}</div>{mode==='korean'&&e.role==='assistant'&&koreanSentences(e.text).some(isKoreanSentence) ? <div className="dh-korean-lines">{koreanSentences(e.text).map((sentence,index)=>{const koreanIndex=koreanSentences(e.text).slice(0,index).filter(isKoreanSentence).length;const translation=koreanTranslations[e.id];return <div key={index} className="dh-korean-line"><p>{isKoreanSentence(sentence) ? <KoreanText text={sentence} /> : sentence}</p>{isKoreanSentence(sentence)&&<p className="dh-korean-translation" lang="zh-Hant">{translation?.text===e.text ? translation.loading ? '翻譯中…' : translation.items?.[koreanIndex]||'翻譯暫時無法載入' : '翻譯中…'}</p>}</div>;})}</div> : <p>{isKoreanSentence(e.text) ? <KoreanText text={e.text} /> : e.text}</p>}</article>)}</div>
       <form onSubmit={e => { e.preventDefault(); text(); }}><input aria-label="文字訊息" maxLength={4000} enterKeyHint="send" autoComplete="off" value={input} onChange={e => setInput(e.target.value)} placeholder="想跟我說什麼…" disabled={status !== 'connected'}/><button disabled={status !== 'connected' || textSending || (turnMode === 'automatic' && recordingNow) || !input.trim()}>{textSending ? '傳送中…' : '傳送'}</button></form>
     </aside></main>
     <VocabularySection />

@@ -6,6 +6,7 @@ import { installDigitalHuman } from './digital-human.mjs';
 import express from 'express';
 import { installAuth } from './auth.mjs';
 import { installKoreanTranslation } from './korean-translation.mjs';
+import { installReplayTts } from './replay-tts.mjs';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
@@ -23,6 +24,7 @@ app.use((_req,res,next)=>{res.set('Cache-Control','no-store');res.set('X-Content
 app.get('/api/health', (_req,res)=>res.json({ok:true,configured:voiceProvider().configured, aiProvider:voiceProvider().name}));
 installAuth(app);
 installKoreanTranslation(app);
+installReplayTts(app);
 app.post('/api/session', express.text({type:['application/sdp','text/plain'],limit:'64kb'}), async(req,res)=>{
   if (!process.env.OPENAI_API_KEY || process.env.OPENAI_API_KEY.includes('REPLACE_ME')) return res.status(503).send('請先在 .env 設定 OPENAI_API_KEY。');
   const mode = typeof req.query.mode === 'string' && Object.hasOwn(modes,req.query.mode) ? req.query.mode : 'companion';

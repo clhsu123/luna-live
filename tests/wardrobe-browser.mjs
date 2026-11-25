@@ -46,7 +46,15 @@ try {
  await page.getByRole('button',{name:'答對了'}).click();
  await page.reload();
  await page.getByText('答對 1 · 待複習 0').waitFor();
+ assert.equal(await page.getByRole('button',{name:'오늘，查詢單字'}).count(),1);
+ await page.route('**/api/replay-tts',async route=>{
+  assert.equal(route.request().postDataJSON().text,'오늘 어땠어요? 괜찮아요?');
+  await route.fulfill({json:{audio:Buffer.alloc(4800).toString('base64'),duration:0.1}});
+ });
+ await page.getByRole('button',{name:'重播 Luna 回覆'}).click();
+ await page.getByRole('button',{name:'重播 Luna 回覆'}).waitFor();
  await page.getByLabel('對話模式').selectOption('business');
+ assert.equal(await page.getByRole('button',{name:'오늘，查詢單字'}).count(),1);
  assert.equal(await page.getByLabel('模擬客戶角色').locator('option').count(),7);
  assert.deepEqual(errors,[]);
  console.log('PASS: only Anam and companion navigation, no wardrobe sections, retired URL fallback and mobile layout');
